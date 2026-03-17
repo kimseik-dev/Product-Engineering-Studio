@@ -100,8 +100,8 @@ const App = () => {
 
       const combinedData = projRes.data.map(project => {
         const associatedMemberIds = relRes.data
-          .filter(rel => String(rel.A) === String(project.id))
-          .map(rel => String(rel.B));
+          .filter(rel => String(rel.B) === String(project.id))
+          .map(rel => String(rel.A));
 
         const projMembers = memRes.data.filter(m => associatedMemberIds.includes(String(m.id)));
         const projIssues = issueRes.data.filter(i => String(i.project_id) === String(project.id));

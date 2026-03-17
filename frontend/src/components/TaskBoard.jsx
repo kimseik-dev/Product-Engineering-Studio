@@ -156,15 +156,15 @@ const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onPro
         const { data: existingRelation, error: checkError } = await supabase
           .from('_ProjectMembers')
           .select('*')
-          .eq('A', taskForm.project_id)
-          .eq('B', taskForm.assignee_id)
+          .eq('A', taskForm.assignee_id)
+          .eq('B', taskForm.project_id)
           .maybeSingle();
         
         if (!checkError && !existingRelation) {
-          // Add to _ProjectMembers table (A: projectId, B: memberId)
+          // Add to _ProjectMembers table (A: memberId, B: projectId)
           const { error: insertRelError } = await supabase
             .from('_ProjectMembers')
-            .insert([{ A: taskForm.project_id, B: taskForm.assignee_id }]);
+            .insert([{ A: taskForm.assignee_id, B: taskForm.project_id }]);
           
           if (insertRelError) {
             console.error('Failed to auto-add member to project:', insertRelError);
