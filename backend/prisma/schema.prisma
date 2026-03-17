@@ -1,0 +1,81 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Project {
+  id          BigInt   @id @default(autoincrement())
+  createdAt   DateTime @default(now()) @map("created_at")
+  title       String
+  groupName   String   @map("group_name")
+  task        String
+  status      String   // 'Development', 'Review', 'Launch'
+  area        String
+  progress    Int      @default(0)
+  endDate     DateTime? @map("end_date")
+  tasks       Task[]
+  members     Member[] @relation("ProjectMembers")
+  issues      Issue[]
+
+  @@map("projects")
+}
+
+model Task {
+  id          BigInt   @id @default(autoincrement())
+  createdAt   DateTime @default(now()) @map("created_at")
+  content     String
+  isCompleted Boolean  @default(false) @map("is_completed")
+  priority    String   @default("Medium") // 'High', 'Medium', 'Low'
+  status      String   @default("To Do") // 'To Do', 'In Progress', 'Done', 'Backlog'
+  dueDate     DateTime? @map("due_date")
+  projectId   BigInt   @map("project_id")
+  project     Project  @relation(fields: [projectId], references: [id])
+  assigneeId  BigInt?  @map("assignee_id")
+  assignee    Member?  @relation("MemberTasks", fields: [assigneeId], references: [id])
+
+  @@map("tasks")
+}
+
+model Member {
+  id        BigInt    @id @default(autoincrement())
+  createdAt DateTime  @default(now()) @map("created_at")
+  name      String
+  role      String
+  avatar    String?
+  status    String    @default("Active") // 'Active', 'Away', 'Offline'
+  projects  Project[] @relation("ProjectMembers")
+  tasks     Task[]    @relation("MemberTasks")
+  issues    Issue[]   @relation("MemberIssues")
+
+  @@map("members")
+}
+
+model Setting {
+  id        BigInt   @id @default(autoincrement())
+  createdAt DateTime @default(now()) @map("created_at")
+  key       String   @unique
+  value     String
+
+  @@map("settings")
+}
+
+model Issue {
+  id          BigInt   @id @default(autoincrement())
+  createdAt   DateTime @default(now()) @map("created_at")
+  title       String
+  content     String
+  status      String   @default("Issue") // 'Issue', 'In Progress', 'Resolved'
+  priority    String   @default("Normal") // 'Critical', 'Warning', 'Normal'
+  projectId   BigInt   @map("project_id")
+  project     Project  @relation(fields: [projectId], references: [id])
+  assigneeId  BigInt?  @map("assignee_id")
+  assignee    Member?  @relation("MemberIssues", fields: [assigneeId], references: [id])
+
+  @@map("issues")
+}

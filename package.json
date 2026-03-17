@@ -1,0 +1,18 @@
+{
+  "name": "project-root",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Premium Product Engineering Studio Dashboard",
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=frontend",
+    "build": "npm run build --workspace=frontend",
+    "db:studio": "npm run db:studio --workspace=backend",
+    "db:push": "npm run db:push --workspace=backend",
+    "db:generate": "npm run db:generate --workspace=backend",
+    "lint": "npm run lint --workspace=frontend"
+  }
+}
