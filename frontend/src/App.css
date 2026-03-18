@@ -191,6 +191,74 @@
   color: white;
 }
 
+.header-actions-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.toggle-completed-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-secondary);
+  padding: 8px 16px;
+  border-radius: 12px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.toggle-completed-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+  transform: translateY(-2px);
+  border-color: rgba(99, 102, 241, 0.3);
+}
+
+.toggle-completed-btn.off {
+  color: #ff4d4d;
+  background: rgba(255, 77, 77, 0.05);
+  border-color: rgba(255, 77, 77, 0.1);
+}
+
+.toggle-completed-btn.off:hover {
+  background: rgba(255, 77, 77, 0.1);
+  border-color: rgba(255, 77, 77, 0.3);
+}
+
+.toggle-completed-btn-minimal {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.toggle-completed-btn-minimal:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+
+.toggle-completed-btn-minimal.off {
+  color: #ff4d4d;
+}
+
+.filter-divider {
+  width: 1px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.1);
+  margin: 0 4px;
+}
+
 /* Project Grid */
 .project-grid {
   display: grid;
@@ -206,6 +274,10 @@
 .fill-development { background: var(--warning-gradient); }
 .fill-review { background: var(--primary-gradient); }
 .fill-launch { background: var(--success-gradient); }
+
+.success-text {
+  color: #10b981;
+}
 
 .project-card {
   padding: 24px;

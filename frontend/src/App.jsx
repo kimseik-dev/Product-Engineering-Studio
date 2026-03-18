@@ -20,7 +20,9 @@ import {
   AlertTriangle,
   Circle,
   Clock,
-  CheckCircle
+  CheckCircle,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from './lib/supabase';
@@ -43,6 +45,7 @@ const App = () => {
   const [selectedProject, setSelectedProject] = useState(null);
   const [activeMenu, setActiveMenu] = useState('dashboard');
   const [taskFilterMemberId, setTaskFilterMemberId] = useState('All');
+  const [showCompleted, setShowCompleted] = useState(true);
 
   // CRUD States (Projects)
   const [showFormModal, setShowFormModal] = useState(false);
@@ -326,6 +329,7 @@ const App = () => {
     { id: 'tasks', label: '작업', icon: CheckSquare },
     { id: 'issues', label: '이슈', icon: AlertTriangle },
     { id: 'team', label: '팀', icon: Users },
+    { id: 'completed', label: '완료된 프로젝트', icon: CheckCircle },
     { id: 'settings', label: '설정', icon: Settings },
   ];
 
@@ -362,8 +366,16 @@ const App = () => {
                 <h2 className="section-title">전체 프로젝트 대시보드</h2>
                 {loading && <span className="loading-spinner">데이터 불러오는 중...</span>}
                 {errorStatus && <span className="error-message" style={{ color: '#ff4d4d', marginLeft: '10px' }}>구성 오류: {errorStatus}</span>}
-                <div className="filters glass">
-                  {Object.keys(statusMap).map((f) => (
+                  <div className="filters glass">
+                    <button 
+                      className={`toggle-completed-btn-minimal ${!showCompleted ? 'off' : ''}`}
+                      onClick={() => setShowCompleted(!showCompleted)}
+                      title={showCompleted ? "완료된 프로젝트 숨기기" : "완료된 프로젝트 보기"}
+                    >
+                      {showCompleted ? <Eye size={16} /> : <EyeOff size={16} />}
+                    </button>
+                    <div className="filter-divider"></div>
+                    {Object.keys(statusMap).map((f) => (
                     <button 
                       key={f} 
                       className={`filter-btn ${filter === f ? 'active' : ''}`}
@@ -375,29 +387,31 @@ const App = () => {
                 </div>
               </div>
 
-              <div className="project-sections-container">
+            <div className="project-sections-container">
                 {/* Current Projects Section */}
                 <div className="project-group-section">
                   <div className="section-header">
                     <h3 className="sub-section-title">🚀 현재 진행 프로젝트</h3>
                   </div>
                   <div className="project-grid">
-                    {filteredProjects.filter(p => p.status !== 'Launch').map((project, idx) => (
-                      <motion.div 
-                        key={project.id} 
-                        className={`project-card glass card-glow ${project.status.toLowerCase()}`}
-                        initial={{ opacity: 0, scale: 0.9 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        transition={{ delay: idx * 0.05 }}
-                        onClick={() => setSelectedProject(project)}
-                      >
-                        <div className="card-header">
-                        <span className="group-tag">{project.group_name}</span>
-                        <div className="card-actions">
-                          <button className="icon-btn xs" onClick={(e) => openEditModal(e, project)}><Settings size={14} /></button>
-                          <button className="icon-btn xs delete" onClick={(e) => handleDeleteProject(e, project.id)}><Trash2 size={14} /></button>
-                        </div>
-                      </div>
+                    {filteredProjects
+                      .filter(p => p.status !== 'Launch')
+                      .map((project, idx) => (
+                        <motion.div 
+                          key={project.id} 
+                          className={`project-card glass card-glow ${project.status.toLowerCase()}`}
+                          initial={{ opacity: 0, scale: 0.9 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          transition={{ delay: idx * 0.05 }}
+                          onClick={() => setSelectedProject(project)}
+                        >
+                          <div className="card-header">
+                            <span className="group-tag">{project.group_name}</span>
+                            <div className="card-actions">
+                              <button className="icon-btn xs" onClick={(e) => openEditModal(e, project)}><Settings size={14} /></button>
+                              <button className="icon-btn xs delete" onClick={(e) => handleDeleteProject(e, project.id)}><Trash2 size={14} /></button>
+                            </div>
+                          </div>
                           <div className="member-avatars">
                             {project.members && project.members.map((member, mIdx) => (
                               <div 
@@ -413,41 +427,41 @@ const App = () => {
                               <div className="avatar-circle empty"><Users size={12} /></div>
                             )}
                           </div>
-                        <h3 className="project-title">
-                          {project.title}
-                          {project.issues && project.issues.filter(i => i.status !== 'Resolved').length > 0 && (
-                            <span className="issue-count-badge" title="미해결 이슈">
-                              <AlertTriangle size={10} /> {project.issues.filter(i => i.status !== 'Resolved').length}
-                            </span>
-                          )}
-                        </h3>
-                        <p className="project-task">{project.task}</p>
-                        
-                        <div className="card-meta">
-                          <div className="meta-item"><Layers size={14} /> {project.area}</div>
-                          {project.end_date && (
-                            <div className="meta-item" title="종료일"><Calendar size={14} /> {new Date(project.end_date).toLocaleDateString()}</div>
-                          )}
-                          <div className={`badge badge-${project.status.toLowerCase()}`}>{statusMap[project.status]}</div>
-                        </div>
+                          <h3 className="project-title">
+                            {project.title}
+                            {project.issues && project.issues.filter(i => i.status !== 'Resolved').length > 0 && (
+                              <span className="issue-count-badge" title="미해결 이슈">
+                                <AlertTriangle size={10} /> {project.issues.filter(i => i.status !== 'Resolved').length}
+                              </span>
+                            )}
+                          </h3>
+                          <p className="project-task">{project.task}</p>
+                          
+                          <div className="card-meta">
+                            <div className="meta-item"><Layers size={14} /> {project.area}</div>
+                            {project.end_date && (
+                              <div className="meta-item" title="종료일"><Calendar size={14} /> {new Date(project.end_date).toLocaleDateString()}</div>
+                            )}
+                            <div className={`badge badge-${project.status.toLowerCase()}`}>{statusMap[project.status]}</div>
+                          </div>
 
-                        <div className="progress-container">
-                          <div className="progress-label">
-                            <span>진행률</span>
-                            <span>{project.progress}%</span>
+                          <div className="progress-container">
+                            <div className="progress-label">
+                              <span>진행률</span>
+                              <span>{project.progress}%</span>
+                            </div>
+                            <div className="progress-bar-bg">
+                              <div 
+                                className={`progress-bar-fill fill-${project.status.toLowerCase()}`}
+                                style={{ 
+                                  width: `${project.progress}%`,
+                                  transition: 'width 1s ease-in-out'
+                                }}
+                              />
+                            </div>
                           </div>
-                          <div className="progress-bar-bg">
-                            <div 
-                              className={`progress-bar-fill fill-${project.status.toLowerCase()}`}
-                              style={{ 
-                                width: `${project.progress}%`,
-                                transition: 'width 1s ease-in-out'
-                              }}
-                            />
-                          </div>
-                        </div>
-                      </motion.div>
-                    ))}
+                        </motion.div>
+                      ))}
                     {filteredProjects.filter(p => p.status !== 'Launch').length === 0 && (
                       <motion.div 
                         className="empty-state-card"
@@ -467,51 +481,53 @@ const App = () => {
                 </div>
 
                 {/* Completed Projects Section */}
-                <div className="project-group-section completed-area mt-12">
-                  <div className="section-header border-t border-white/5 pt-10">
-                    <h3 className="sub-section-title opacity-70">✅ 완료된 프로젝트</h3>
+                {showCompleted && (
+                  <div className="project-group-section completed-area mt-12">
+                    <div className="section-header border-t border-white/5 pt-10">
+                      <h3 className="sub-section-title opacity-70">✅ 완료된 프로젝트</h3>
+                    </div>
+                    <div className="project-grid mini-grid">
+                      {filteredProjects.filter(p => p.status === 'Launch').map((project, idx) => (
+                        <motion.div 
+                          key={project.id} 
+                          className="project-card glass card-glow completed-card"
+                          initial={{ opacity: 0, scale: 0.9 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          transition={{ delay: idx * 0.05 }}
+                          onClick={() => setSelectedProject(project)}
+                        >
+                          <div className="card-header">
+                          <span className="group-tag">{project.group_name}</span>
+                          <div className="card-actions">
+                            <button className="icon-btn xs" onClick={(e) => openEditModal(e, project)}><Settings size={14} /></button>
+                            <button className="icon-btn xs delete" onClick={(e) => handleDeleteProject(e, project.id)}><Trash2 size={14} /></button>
+                          </div>
+                        </div>
+                          <h3 className="project-title">{project.title}</h3>
+                          <div className="card-meta">
+                            <div className={`badge badge-launch small`}>완료됨</div>
+                            <div className="progress-mini-label">{project.progress}%</div>
+                          </div>
+                        </motion.div>
+                      ))}
+                      {filteredProjects.filter(p => p.status === 'Launch').length === 0 && (
+                        <motion.div 
+                          className="empty-state-card"
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                        >
+                          <div className="empty-state-icon">
+                            <CheckCircle size={40} strokeWidth={1} />
+                          </div>
+                          <div className="empty-state-text">
+                            <h4>아직 완료된 프로젝트가 없어요</h4>
+                            <p>열심히 진행 중인 프로젝트들이 곧 결실을 맺을 거예요! 🏆</p>
+                          </div>
+                        </motion.div>
+                      )}
+                    </div>
                   </div>
-                  <div className="project-grid mini-grid">
-                    {filteredProjects.filter(p => p.status === 'Launch').map((project, idx) => (
-                      <motion.div 
-                        key={project.id} 
-                        className="project-card glass card-glow completed-card"
-                        initial={{ opacity: 0, scale: 0.9 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        transition={{ delay: idx * 0.05 }}
-                        onClick={() => setSelectedProject(project)}
-                      >
-                        <div className="card-header">
-                        <span className="group-tag">{project.group_name}</span>
-                        <div className="card-actions">
-                          <button className="icon-btn xs" onClick={(e) => openEditModal(e, project)}><Settings size={14} /></button>
-                          <button className="icon-btn xs delete" onClick={(e) => handleDeleteProject(e, project.id)}><Trash2 size={14} /></button>
-                        </div>
-                      </div>
-                        <h3 className="project-title">{project.title}</h3>
-                        <div className="card-meta">
-                          <div className={`badge badge-launch small`}>완료됨</div>
-                          <div className="progress-mini-label">{project.progress}%</div>
-                        </div>
-                      </motion.div>
-                    ))}
-                    {filteredProjects.filter(p => p.status === 'Launch').length === 0 && (
-                      <motion.div 
-                        className="empty-state-card"
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                      >
-                        <div className="empty-state-icon">
-                          <CheckCircle size={40} strokeWidth={1} />
-                        </div>
-                        <div className="empty-state-text">
-                          <h4>아직 완료된 프로젝트가 없어요</h4>
-                          <p>열심히 진행 중인 프로젝트들이 곧 결실을 맺을 거예요! 🏆</p>
-                        </div>
-                      </motion.div>
-                    )}
-                  </div>
-                </div>
+                )}
               </div>
             </section>
           </motion.div>
@@ -530,6 +546,14 @@ const App = () => {
               </div>
               <div className="list-actions">
                 <div className="filters glass compact">
+                  <button 
+                    className={`toggle-completed-btn-minimal ${!showCompleted ? 'off' : ''}`}
+                    onClick={() => setShowCompleted(!showCompleted)}
+                    title={showCompleted ? "완료된 프로젝트 숨기기" : "완료된 프로젝트 보기"}
+                  >
+                    {showCompleted ? <Eye size={16} /> : <EyeOff size={16} />}
+                  </button>
+                  <div className="filter-divider"></div>
                   {Object.keys(statusMap).map((f) => (
                     <button 
                       key={f} 
@@ -558,7 +582,9 @@ const App = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredProjects.map((project, idx) => (
+                  {filteredProjects
+                    .filter(p => showCompleted || p.status !== 'Launch')
+                    .map((project, idx) => (
                     <motion.tr 
                       key={project.id}
                       initial={{ opacity: 0, x: -10 }}
@@ -616,7 +642,7 @@ const App = () => {
                       </td>
                     </motion.tr>
                   ))}
-                  {filteredProjects.length === 0 && (
+                  {filteredProjects.filter(p => showCompleted || p.status !== 'Launch').length === 0 && (
                     <tr>
                       <td colSpan="8" className="empty-row">검색 결과가 없습니다.</td>
                     </tr>
@@ -720,6 +746,101 @@ const App = () => {
           >
             <h2>⚙️ 환경 설정</h2>
             <p>알림 설정부터 프로필 관리까지! (영자가 안전하게 세팅해드릴게요~ 🛠️)</p>
+          </motion.div>
+        );
+      case 'completed':
+        const completedProjects = projects.filter(p => p.status === 'Launch');
+        return (
+          <motion.div 
+            className="projects-list-view"
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+          >
+            <div className="list-header glass">
+              <div className="list-title-area">
+                <h2>✅ 완료된 프로젝트 목록</h2>
+                <p>총 {completedProjects.length}개의 프로젝트가 성공적으로 완료되었습니다! 🏆</p>
+              </div>
+            </div>
+
+            <div className="projects-table-container glass">
+              <table className="projects-table">
+                <thead>
+                  <tr>
+                    <th>프로젝트 명</th>
+                    <th>그룹</th>
+                    <th>상태</th>
+                    <th>종료일</th>
+                    <th>진행률</th>
+                    <th>담당 영역</th>
+                    <th>멤버</th>
+                    <th className="text-right">관리</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {completedProjects.map((project, idx) => (
+                    <motion.tr 
+                      key={project.id}
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: idx * 0.03 }}
+                      onClick={() => setSelectedProject(project)}
+                      className="clickable-row"
+                    >
+                      <td className="col-title">
+                        <div className="project-info-cell">
+                          <CheckCircle size={14} className="cell-icon success-text" />
+                          <span>{project.title}</span>
+                        </div>
+                      </td>
+                      <td><span className="group-tag small">{project.group_name}</span></td>
+                      <td><div className={`badge badge-${project.status.toLowerCase()} small`}>{statusMap[project.status]}</div></td>
+                      <td><span className="date-cell">{project.end_date ? new Date(project.end_date).toLocaleDateString() : '-'}</span></td>
+                      <td className="col-progress">
+                        <div className="progress-cell">
+                          <span className="progress-text">{project.progress}%</span>
+                          <div className="progress-bar-bg mini">
+                            <div 
+                              className={`progress-bar-fill fill-${project.status.toLowerCase()}`}
+                              style={{ width: `${project.progress}%` }}
+                            />
+                          </div>
+                        </div>
+                      </td>
+                      <td><span className="area-label">{project.area}</span></td>
+                      <td className="members-cell">
+                        <div className="member-avatars">
+                          {project.members && project.members.slice(0, 3).map(m => (
+                            <div 
+                              key={m.id} 
+                              className="member-avatar mini cursor-pointer" 
+                              title={`${m.name} (${m.role})`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleMemberClick(m.id);
+                              }}
+                            >
+                              {m.avatar ? <img src={m.avatar} alt={m.name} /> : m.name[0]}
+                            </div>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="actions-cell">
+                        <div className="row-actions">
+                          <button className="icon-btn small" onClick={(e) => openEditModal(e, project)}><Settings size={14} /></button>
+                          <button className="icon-btn small delete" onClick={(e) => handleDeleteProject(e, project.id)}><Trash2 size={14} /></button>
+                        </div>
+                      </td>
+                    </motion.tr>
+                  ))}
+                  {completedProjects.length === 0 && (
+                    <tr>
+                      <td colSpan="8" className="empty-row">아직 완료된 프로젝트가 없습니다.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </motion.div>
         );
       default:
