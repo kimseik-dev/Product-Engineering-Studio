@@ -104,7 +104,10 @@ const App = () => {
 
       if (projRes.error) throw projRes.error;
       if (memRes.error) throw memRes.error;
-      if (relRes.error) throw relRes.error;
+      // Handle project_members 404/error gracefully to prevent UI freeze
+      if (relRes.error) {
+        console.warn('Project members relation fetch failed:', relRes.error.message);
+      }
       if (issueRes.error) throw issueRes.error;
 
       // Global members state for Team view

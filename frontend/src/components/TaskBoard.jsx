@@ -71,14 +71,20 @@ const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onPro
   useEffect(() => {
     fetchTasks();
     
-    const taskChannel = supabase.channel('task_changes')
+    const taskChannel = supabase.channel('task_sync')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, () => fetchTasks())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'task_assignees' }, () => fetchTasks())
       .subscribe();
 
     return () => {
       supabase.removeChannel(taskChannel);
     };
   }, []);
+
+  // Sync tasks when projects prop updates from App.jsx
+  useEffect(() => {
+    fetchTasks();
+  }, [projects]);
 
   const fetchTasks = async () => {
     setLoading(true);

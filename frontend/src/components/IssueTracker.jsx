@@ -61,7 +61,20 @@ const IssueTracker = ({ members = [], projects = [], onUpdate }) => {
 
   useEffect(() => {
     fetchIssues();
+    
+    const issueChannel = supabase.channel('issue_sync')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'issues' }, () => fetchIssues())
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(issueChannel);
+    };
   }, [selectedProject]);
+
+  // Sync issues when projects prop updates from App.jsx
+  useEffect(() => {
+    fetchIssues();
+  }, [projects]);
 
   const fetchIssues = async () => {
     try {
