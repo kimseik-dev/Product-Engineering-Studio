@@ -28,7 +28,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from './lib/supabase';
 import TaskBoard from './components/TaskBoard';
 import IssueTracker from './components/IssueTracker';
-import { Toaster } from 'react-hot-toast';
+import { Toaster, toast } from 'react-hot-toast';
 import './App.css';
 
 const statusMap = {
@@ -327,11 +327,11 @@ const App = () => {
           if (!exists) await supabase.from('project_members').insert([{ member_id: mId, project_id: assigningTask.project_id }]);
         }
       }
-      import('react-hot-toast').then(toast => toast.success('배정 정보가 업데이트되었어요! ✨'));
+      toast.success('배정 정보가 업데이트되었어요! ✨');
       setShowAssigneeModal(false);
       fetchProjects(); 
     } catch (error) {
-      import('react-hot-toast').then(toast => toast.error('배정 중 오류가 발생했습니다. 😢'));
+      toast.error('배정 중 오류가 발생했습니다. 😢');
     } finally {
       setIsSubmitting(false);
     }

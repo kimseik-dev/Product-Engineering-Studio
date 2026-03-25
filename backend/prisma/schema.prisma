@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -10,57 +7,57 @@ datasource db {
 }
 
 model Project {
-  id          BigInt   @id @default(autoincrement())
-  createdAt   DateTime @default(now()) @map("created_at")
-  title       String
-  groupName   String   @map("group_name")
-  task        String
-  status      String   // 'Development', 'Review', 'Launch'
-  area        String
-  progress    Int      @default(0)
-  endDate     DateTime? @map("end_date")
-  inspectionDate DateTime? @map("inspection_date")
-  tasks       Task[]
-  members     ProjectMember[]
-  issues      Issue[]
+  id             BigInt          @id @default(autoincrement())
+  createdAt      DateTime        @default(now()) @map("created_at")
+  title          String
+  groupName      String          @map("group_name")
+  task           String
+  status         String
+  area           String
+  progress       Int             @default(0)
+  endDate        DateTime?       @map("end_date")
+  inspectionDate DateTime?       @map("inspection_date")
+  issues         Issue[]
+  members        ProjectMember[]
+  tasks          Task[]
 
   @@map("projects")
 }
 
 model Task {
-  id          BigInt   @id @default(autoincrement())
-  createdAt   DateTime @default(now()) @map("created_at")
+  id          BigInt         @id @default(autoincrement())
+  createdAt   DateTime       @default(now()) @map("created_at")
   content     String
-  isCompleted Boolean  @default(false) @map("is_completed")
-  priority    String   @default("Medium") // 'High', 'Medium', 'Low'
-  status      String   @default("To Do") // 'To Do', 'In Progress', 'Done', 'Backlog'
-  dueDate     DateTime? @map("due_date")
-  projectId   BigInt   @map("project_id")
-  project     Project  @relation(fields: [projectId], references: [id])
+  isCompleted Boolean        @default(false) @map("is_completed")
+  priority    String         @default("Medium")
+  projectId   BigInt         @map("project_id")
+  status      String         @default("To Do")
+  dueDate     DateTime?      @map("due_date")
   assignees   TaskAssignee[]
+  project     Project        @relation(fields: [projectId], references: [id])
 
   @@map("tasks")
 }
 
 model Member {
-  id        BigInt    @id @default(autoincrement())
-  createdAt DateTime  @default(now()) @map("created_at")
+  id        BigInt          @id @default(autoincrement())
+  createdAt DateTime        @default(now()) @map("created_at")
   name      String
   role      String
   avatar    String?
-  status    String    @default("Active") // 'Active', 'Away', 'Offline'
+  status    String          @default("Active")
+  issues    Issue[]         @relation("MemberIssues")
   projects  ProjectMember[]
   tasks     TaskAssignee[]
-  issues    Issue[]   @relation("MemberIssues")
 
   @@map("members")
 }
 
 model ProjectMember {
-  projectId BigInt @map("project_id")
-  memberId  BigInt @map("member_id")
-  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId BigInt  @map("project_id")
+  memberId  BigInt  @map("member_id")
   member    Member  @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@id([projectId, memberId])
   @@map("project_members")
@@ -69,8 +66,8 @@ model ProjectMember {
 model TaskAssignee {
   taskId   BigInt @map("task_id")
   memberId BigInt @map("member_id")
+  member   Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
   task     Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  member   Member  @relation(fields: [memberId], references: [id], onDelete: Cascade)
 
   @@id([taskId, memberId])
   @@map("task_assignees")
@@ -86,16 +83,16 @@ model Setting {
 }
 
 model Issue {
-  id          BigInt   @id @default(autoincrement())
-  createdAt   DateTime @default(now()) @map("created_at")
-  title       String
-  content     String
-  status      String   @default("Issue") // 'Issue', 'In Progress', 'Resolved'
-  priority    String   @default("Normal") // 'Critical', 'Warning', 'Normal'
-  projectId   BigInt   @map("project_id")
-  project     Project  @relation(fields: [projectId], references: [id])
-  assigneeId  BigInt?  @map("assignee_id")
-  assignee    Member?  @relation("MemberIssues", fields: [assigneeId], references: [id])
+  id         BigInt   @id @default(autoincrement())
+  createdAt  DateTime @default(now()) @map("created_at")
+  title      String
+  content    String
+  status     String   @default("Issue")
+  priority   String   @default("Normal")
+  projectId  BigInt   @map("project_id")
+  assigneeId BigInt?  @map("assignee_id")
+  assignee   Member?  @relation("MemberIssues", fields: [assigneeId], references: [id])
+  project    Project  @relation(fields: [projectId], references: [id])
 
   @@map("issues")
 }

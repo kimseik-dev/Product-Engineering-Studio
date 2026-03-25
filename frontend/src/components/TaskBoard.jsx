@@ -113,9 +113,9 @@ const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onPro
       ));
 
       try {
-        await supabase.from('_TaskAssignees').delete().eq('B', task.id);
+        await supabase.from('task_assignees').delete().eq('task_id', task.id);
         if (newAssigneeIds.length > 0) {
-          await supabase.from('_TaskAssignees').insert(newAssigneeIds.map(id => ({ A: id, B: task.id })));
+          await supabase.from('task_assignees').insert(newAssigneeIds.map(id => ({ member_id: id, task_id: task.id })));
         }
         toast.success(newAssigneeIds.length > 0 ? '배정 완료! ✨' : '배정 해제! 얍!');
         fetchTasks();
@@ -178,18 +178,18 @@ const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onPro
       }
 
       if (taskId) {
-        await supabase.from('_TaskAssignees').delete().eq('B', taskId);
+        await supabase.from('task_assignees').delete().eq('task_id', taskId);
         if (taskForm.assignee_ids.length > 0) {
-          const relations = taskForm.assignee_ids.map(mId => ({ A: mId, B: taskId }));
-          const { error } = await supabase.from('_TaskAssignees').insert(relations);
+          const relations = taskForm.assignee_ids.map(mId => ({ member_id: mId, task_id: taskId }));
+          const { error } = await supabase.from('task_assignees').insert(relations);
           if (error) throw error;
         }
       }
 
       if (taskForm.assignee_ids.length > 0 && taskForm.project_id) {
         for (const mId of taskForm.assignee_ids) {
-          const { data: existingRelation } = await supabase.from('_ProjectMembers').select('*').eq('A', mId).eq('B', taskForm.project_id).maybeSingle();
-          if (!existingRelation) await supabase.from('_ProjectMembers').insert([{ A: mId, B: taskForm.project_id }]);
+          const { data: existingRelation } = await supabase.from('project_members').select('*').eq('member_id', mId).eq('project_id', taskForm.project_id).maybeSingle();
+          if (!existingRelation) await supabase.from('project_members').insert([{ member_id: mId, project_id: taskForm.project_id }]);
         }
       }
 
