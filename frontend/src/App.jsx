@@ -98,7 +98,7 @@ const App = () => {
       const [projRes, memRes, relRes, issueRes] = await Promise.all([
         supabase.from('projects').select('*').order('id', { ascending: true }),
         supabase.from('members').select('*'),
-        supabase.from('_ProjectMembers').select('*'),
+        supabase.from('project_members').select('*'),
         supabase.from('issues').select('*')
       ]);
 
@@ -112,8 +112,8 @@ const App = () => {
 
       const combinedData = projRes.data.map(project => {
         const associatedMemberIds = relRes.data
-          .filter(rel => String(rel.B) === String(project.id))
-          .map(rel => String(rel.A));
+          .filter(rel => String(rel.project_id) === String(project.id))
+          .map(rel => String(rel.member_id));
 
         const projMembers = memRes.data.filter(m => associatedMemberIds.includes(String(m.id)));
         const projIssues = issueRes.data.filter(i => String(i.project_id) === String(project.id));
@@ -317,14 +317,14 @@ const App = () => {
     if (!assigningTask) return;
     try {
       setIsSubmitting(true);
-      await supabase.from('_TaskAssignees').delete().eq('B', assigningTask.id);
+      await supabase.from('task_assignees').delete().eq('task_id', assigningTask.id);
       if (selectedAssigneeIds.length > 0) {
-        const relations = selectedAssigneeIds.map(mId => ({ A: mId, B: assigningTask.id }));
-        const { error } = await supabase.from('_TaskAssignees').insert(relations);
+        const relations = selectedAssigneeIds.map(mId => ({ member_id: mId, task_id: assigningTask.id }));
+        const { error } = await supabase.from('task_assignees').insert(relations);
         if (error) throw error;
         for (const mId of selectedAssigneeIds) {
-          const { data: exists } = await supabase.from('_ProjectMembers').select('*').eq('A', mId).eq('B', assigningTask.project_id).maybeSingle();
-          if (!exists) await supabase.from('_ProjectMembers').insert([{ A: mId, B: assigningTask.project_id }]);
+          const { data: exists } = await supabase.from('project_members').select('*').eq('member_id', mId).eq('project_id', assigningTask.project_id).maybeSingle();
+          if (!exists) await supabase.from('project_members').insert([{ member_id: mId, project_id: assigningTask.project_id }]);
         }
       }
       import('react-hot-toast').then(toast => toast.success('배정 정보가 업데이트되었어요! ✨'));
@@ -344,7 +344,7 @@ const App = () => {
     const channels = supabase.channel('pes_db_changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'projects' }, () => fetchProjects())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'members' }, () => fetchProjects())
-      .on('postgres_changes', { event: '*', schema: 'public', table: '_ProjectMembers' }, () => fetchProjects())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'project_members' }, () => fetchProjects())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'issues' }, () => fetchProjects())
       .subscribe();
 
