@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { toast } from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Plus, 
@@ -12,7 +13,8 @@ import {
   Hash,
   Filter,
   Trash2,
-  AlertTriangle
+  AlertTriangle,
+  UserPlus
 } from 'lucide-react';
 
 const statuses = ['To Do', 'In Progress', 'Review', 'Done'];
@@ -35,11 +37,14 @@ const priorityIcons = {
   'Low': <Circle size={14} className="text-blue" />
 };
 
-const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onProjectUpdate }) => {
+const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onProjectUpdate, onQuickAssign }) => {
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedMember, setSelectedMember] = useState(initialMemberId);
+  const [selectedProject, setSelectedProject] = useState('All');
   const [viewMode, setViewMode] = useState('swimlane'); // 'board' or 'swimlane'
+  const [hoveredMemberId, setHoveredMemberId] = useState(null); // For Drag & Drop
+  const [isDragging, setIsDragging] = useState(false);
   
   // Update local selector if prop changes
   useEffect(() => {
@@ -56,7 +61,7 @@ const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onPro
     priority: 'Medium',
     due_date: '',
     project_id: '',
-    assignee_id: ''
+    assignee_ids: []
   });
 
   // Delete Confirmation State
@@ -79,7 +84,7 @@ const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onPro
     setLoading(true);
     const { data, error } = await supabase
       .from('tasks')
-      .select('*, assignee:members(*), project:projects(*)')
+      .select('*, assignees:members(*), project:projects(*)')
       .order('created_at', { ascending: false });
 
     if (!error) {
@@ -97,6 +102,30 @@ const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onPro
     if (error) alert('상태 변경 중 오류가 발생했어요! 😅');
   };
 
+  const handleTaskDragEnd = async (task, info) => {
+    setIsDragging(false);
+    
+    if (hoveredMemberId) {
+      const newAssigneeIds = hoveredMemberId === 'Unassigned' ? [] : [parseInt(hoveredMemberId)];
+      
+      setTasks(prev => prev.map(t => 
+        t.id === task.id ? { ...t, assignee_ids: newAssigneeIds } : t
+      ));
+
+      try {
+        await supabase.from('_TaskAssignees').delete().eq('B', task.id);
+        if (newAssigneeIds.length > 0) {
+          await supabase.from('_TaskAssignees').insert(newAssigneeIds.map(id => ({ A: id, B: task.id })));
+        }
+        toast.success(newAssigneeIds.length > 0 ? '배정 완료! ✨' : '배정 해제! 얍!');
+        fetchTasks();
+      } catch (error) {
+        toast.error('배정 중 오류가 발생했어요. 😢');
+        fetchTasks();
+      }
+    }
+  };
+
   const openCreateModal = (initialStatus = 'To Do') => {
     setEditingTask(null);
     setTaskForm({
@@ -105,9 +134,13 @@ const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onPro
       priority: 'Medium',
       due_date: '',
       project_id: projects[0]?.id || '',
-      assignee_id: ''
+      assignee_ids: []
     });
     setShowTaskModal(true);
+  };
+
+  const openAssigneeModal = (task) => {
+    if (onQuickAssign) onQuickAssign(task);
   };
 
   const openEditModal = (task) => {
@@ -118,7 +151,7 @@ const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onPro
       priority: task.priority,
       due_date: task.due_date ? task.due_date.split('T')[0] : '',
       project_id: task.project_id,
-      assignee_id: task.assignee_id || ''
+      assignee_ids: task.assignees ? task.assignees.map(m => String(m.id)) : []
     });
     setShowTaskModal(true);
   };
@@ -131,48 +164,32 @@ const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onPro
 
     try {
       setIsSubmitting(true);
-      const payload = {
-        ...taskForm,
-        assignee_id: taskForm.assignee_id || null,
-        due_date: taskForm.due_date || null
-      };
+      const { assignee_ids, ...taskData } = taskForm;
+      const payload = { ...taskData, due_date: taskForm.due_date || null };
+      let taskId = editingTask?.id;
 
       if (editingTask) {
-        const { error } = await supabase
-          .from('tasks')
-          .update(payload)
-          .eq('id', editingTask.id);
+        const { error } = await supabase.from('tasks').update(payload).eq('id', editingTask.id);
         if (error) throw error;
       } else {
-        const { error } = await supabase
-          .from('tasks')
-          .insert([payload]);
+        const { data, error } = await supabase.from('tasks').insert([payload]).select().single();
         if (error) throw error;
+        taskId = data.id;
       }
 
-      // Automatically add assignee to project members if not already added
-      if (taskForm.assignee_id && taskForm.project_id) {
-        // Check if relationship already exists
-        const { data: existingRelation, error: checkError } = await supabase
-          .from('_ProjectMembers')
-          .select('*')
-          .eq('A', taskForm.assignee_id)
-          .eq('B', taskForm.project_id)
-          .maybeSingle();
-        
-        if (!checkError && !existingRelation) {
-          // Add to _ProjectMembers table (A: memberId, B: projectId)
-          const { error: insertRelError } = await supabase
-            .from('_ProjectMembers')
-            .insert([{ A: taskForm.assignee_id, B: taskForm.project_id }]);
-          
-          if (insertRelError) {
-            console.error('Failed to auto-add member to project:', insertRelError);
-          } else {
-            console.log(`Auto-added member ${taskForm.assignee_id} to project ${taskForm.project_id}`);
-          }
-        } else if (checkError) {
-          console.error('Error checking project member relationship:', checkError);
+      if (taskId) {
+        await supabase.from('_TaskAssignees').delete().eq('B', taskId);
+        if (taskForm.assignee_ids.length > 0) {
+          const relations = taskForm.assignee_ids.map(mId => ({ A: mId, B: taskId }));
+          const { error } = await supabase.from('_TaskAssignees').insert(relations);
+          if (error) throw error;
+        }
+      }
+
+      if (taskForm.assignee_ids.length > 0 && taskForm.project_id) {
+        for (const mId of taskForm.assignee_ids) {
+          const { data: existingRelation } = await supabase.from('_ProjectMembers').select('*').eq('A', mId).eq('B', taskForm.project_id).maybeSingle();
+          if (!existingRelation) await supabase.from('_ProjectMembers').insert([{ A: mId, B: taskForm.project_id }]);
         }
       }
 
@@ -195,10 +212,7 @@ const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onPro
     if (!taskToDelete) return;
     try {
       setIsSubmitting(true);
-      const { error } = await supabase
-        .from('tasks')
-        .delete()
-        .eq('id', taskToDelete.id);
+      const { error } = await supabase.from('tasks').delete().eq('id', taskToDelete.id);
       if (error) throw error;
       setShowDeleteModal(false);
       setTaskToDelete(null);
@@ -210,34 +224,59 @@ const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onPro
     }
   };
 
-  const filteredTasks = selectedMember === 'All' 
-    ? tasks 
-    : tasks.filter(t => String(t.assignee_id) === String(selectedMember));
+  const filteredTasks = tasks.filter(t => {
+    const memberMatch = selectedMember === 'All' || (Array.isArray(t.assignees) && t.assignees.some(m => String(m.id) === String(selectedMember)));
+    const projectMatch = selectedProject === 'All' || String(t.project_id) === String(selectedProject);
+    return memberMatch && projectMatch;
+  });
 
-  // Group tasks by assignee for swimlane view
   const membersWithTasks = members.map(m => ({
     ...m,
-    tasks: filteredTasks.filter(t => String(t.assignee_id) === String(m.id))
+    tasks: tasks.filter(t => {
+      const assignedToMe = Array.isArray(t.assignees) && t.assignees.some(assignee => String(assignee.id) === String(m.id));
+      const projectMatch = selectedProject === 'All' || String(t.project_id) === String(selectedProject);
+      return assignedToMe && projectMatch;
+    })
   })).filter(m => selectedMember === 'All' || String(m.id) === String(selectedMember));
 
-  // Tasks with no assignee
-  const unassignedTasks = filteredTasks.filter(t => !t.assignee_id);
+  const unassignedTasks = tasks.filter(t => {
+    const noAssignee = !Array.isArray(t.assignees) || t.assignees.length === 0;
+    const projectMatch = selectedProject === 'All' || String(t.project_id) === String(selectedProject);
+    return noAssignee && projectMatch;
+  });
 
   const renderTaskCard = (task) => (
     <motion.div
       key={task.id}
       layout
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.95 }}
+      drag
+      dragConstraints={{ left: 0, right: 0, top: 0, bottom: 0 }}
+      dragElastic={0.1}
+      onDragStart={() => setIsDragging(true)}
+      onDragEnd={(e, info) => handleTaskDragEnd(task, info)}
+      whileDrag={{ 
+        scale: 1.05, 
+        zIndex: 1000, 
+        backgroundColor: 'rgba(99, 102, 241, 0.1)',
+        boxShadow: '0 20px 40px rgba(0,0,0,0.3)'
+      }}
       className="task-card glass card-glow group"
-      onClick={() => openEditModal(task)}
+      onClick={() => !isDragging && openEditModal(task)}
     >
       <div className="task-card-header">
         <span className={`priority-tag ${task.priority.toLowerCase()}`}>
           {priorityIcons[task.priority]} {task.priority}
         </span>
         <div className="card-actions-overlay opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+          {(!Array.isArray(task.assignees) || task.assignees.length === 0) && (
+            <button 
+              className="icon-btn xs assign" 
+              onClick={(e) => { e.stopPropagation(); openAssigneeModal(task); }}
+              title="담당자 배정"
+            >
+              <UserPlus size={14} />
+            </button>
+          )}
           <button 
             className="icon-btn xs delete" 
             onClick={(e) => { e.stopPropagation(); confirmDeleteTask(task); }}
@@ -252,6 +291,19 @@ const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onPro
         <div className="task-project">
           <Hash size={12} /> {task.project?.title || 'Unknown Project'}
         </div>
+        <div className="task-assignees-avatars">
+          {Array.isArray(task.assignees) && task.assignees.length > 0 ? (
+            task.assignees.map(m => (
+              <div key={m.id} className="mini-avatar" title={m.name}>
+                {m.avatar ? <img src={m.avatar} alt={m.name} /> : m.name[0]}
+              </div>
+            ))
+          ) : (
+            <div className="no-assignee-v2" title="담당자 없음">
+              <User size={12} className="opacity-40" />
+            </div>
+          )}
+        </div>
         {task.due_date && (
           <div className="task-due text-xs opacity-70">
             <Clock size={12} /> {new Date(task.due_date).toLocaleDateString()}
@@ -264,36 +316,69 @@ const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onPro
   return (
     <div className="task-board-container">
       <div className="board-header glass">
-        <div className="board-header-left">
-          <h2>✅ 작업 칸반 보드</h2>
-          <div className="view-toggles">
-            <button 
-              className={`toggle-btn ${viewMode === 'board' ? 'active' : ''}`}
-              onClick={() => setViewMode('board')}
-            >보드 뷰</button>
-            <button 
-              className={`toggle-btn ${viewMode === 'swimlane' ? 'active' : ''}`}
-              onClick={() => setViewMode('swimlane')}
-            >스윔레인 (사용자별)</button>
+        <div className="board-header-top">
+          <div className="board-header-left">
+            <h2>✅ 작업 칸반 보드</h2>
+            <div className="view-toggles">
+              <button 
+                className={`toggle-btn ${viewMode === 'board' ? 'active' : ''}`}
+                onClick={() => setViewMode('board')}
+              >보드 뷰</button>
+              <button 
+                className={`toggle-btn ${viewMode === 'swimlane' ? 'active' : ''}`}
+                onClick={() => setViewMode('swimlane')}
+              >스윔레인 (사용자별)</button>
+            </div>
+          </div>
+          <div className="board-header-right">
+            <div className="member-filters">
+              <span className="filter-label"><Filter size={16} /> 담당자:</span>
+              <div 
+                className={`filter-avatar ${selectedMember === 'All' ? 'active' : ''}`}
+                onClick={() => setSelectedMember('All')}
+                title="전체 보기"
+              >전체</div>
+              {members.map(m => (
+                <div 
+                  key={m.id}
+                  className={`filter-avatar ${selectedMember === String(m.id) ? 'active' : ''}`}
+                  onClick={() => setSelectedMember(String(m.id))}
+                  title={m.name}
+                >
+                  {m.avatar ? <img src={m.avatar} alt={m.name} /> : m.name[0]}
+                </div>
+              ))}
+            </div>
           </div>
         </div>
-        <div className="board-header-right">
-          <div className="member-filters">
-            <span className="filter-label"><Filter size={16} /> 필터:</span>
-            <div 
-              className={`filter-avatar ${selectedMember === 'All' ? 'active' : ''}`}
-              onClick={() => setSelectedMember('All')}
-              title="전체 보기"
-            >전체</div>
-            {members.map(m => (
-              <div 
-                key={m.id}
-                className={`filter-avatar ${selectedMember === String(m.id) ? 'active' : ''}`}
-                onClick={() => setSelectedMember(String(m.id))}
-                title={m.name}
+      </div>
+
+      <div className="board-header-projects-wide glass">
+        <div className="project-filters-expanded">
+          <div className="project-filters-header">
+            <div className="filter-title"><Hash size={18} /> 프로젝트 신속 이동</div>
+            <div className="filter-subtitle">원하는 프로젝트를 선택하여 작업을 필터링하세요.</div>
+          </div>
+          <div className="project-chips-wrapper">
+            <motion.div 
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              className={`filter-project-chip ${selectedProject === 'All' ? 'active' : ''}`}
+              onClick={() => setSelectedProject('All')}
+            >
+              🚀 전체 프로젝트
+            </motion.div>
+            {projects.map(p => (
+              <motion.div 
+                key={p.id}
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                className={`filter-project-chip ${selectedProject === String(p.id) ? 'active' : ''}`}
+                onClick={() => setSelectedProject(String(p.id))}
+                title={p.title}
               >
-                {m.avatar ? <img src={m.avatar} alt={m.name} /> : m.name[0]}
-              </div>
+                {p.title}
+              </motion.div>
             ))}
           </div>
         </div>
@@ -313,9 +398,37 @@ const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onPro
                   </span>
                 </div>
                 <div className="column-tasks">
-                  <AnimatePresence>
-                    {filteredTasks.filter(t => t.status === status).map(renderTaskCard)}
-                  </AnimatePresence>
+                  {selectedProject === 'All' ? (
+                    projects.map(project => {
+                      const projectTasks = filteredTasks.filter(t => t.status === status && String(t.project_id) === String(project.id));
+                      if (projectTasks.length === 0) return null;
+                      return (
+                        <div key={project.id} className="project-group-container">
+                          <div className="project-group-header">
+                            <Hash size={12} /> {project.title}
+                          </div>
+                          <AnimatePresence>
+                            {projectTasks.map(renderTaskCard)}
+                          </AnimatePresence>
+                        </div>
+                      );
+                    }).concat(
+                      filteredTasks.filter(t => t.status === status && !projects.some(p => String(p.id) === String(t.project_id))).length > 0 ? (
+                        <div key="unknown" className="project-group-container">
+                          <div className="project-group-header">
+                            <Hash size={12} /> Unknown Project
+                          </div>
+                          <AnimatePresence>
+                            {filteredTasks.filter(t => t.status === status && !projects.some(p => String(p.id) === String(t.project_id))).map(renderTaskCard)}
+                          </AnimatePresence>
+                        </div>
+                      ) : []
+                    )
+                  ) : (
+                    <AnimatePresence>
+                      {filteredTasks.filter(t => t.status === status).map(renderTaskCard)}
+                    </AnimatePresence>
+                  )}
                   <button className="add-task-inline" onClick={() => openCreateModal(status)}><Plus size={16} /> 작업 추가</button>
                 </div>
               </div>
@@ -323,9 +436,12 @@ const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onPro
           </div>
         ) : (
           <div className="swimlane-container">
-            {/* Unassigned Tasks if any */}
             {unassignedTasks.length > 0 && (
-              <div className="swimlane-row">
+              <div 
+                className={`swimlane-row glass ${hoveredMemberId === 'Unassigned' ? 'drop-active' : ''}`}
+                onMouseEnter={() => setHoveredMemberId('Unassigned')}
+                onMouseLeave={() => setHoveredMemberId(null)}
+              >
                 <div className="swimlane-header">
                   <div className="member-info">
                     <div className="avatar-circle empty"><User size={16} /></div>
@@ -344,7 +460,12 @@ const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onPro
             )}
 
             {membersWithTasks.map(member => (
-              <div key={member.id} className="swimlane-row">
+              <div 
+                key={member.id} 
+                className={`swimlane-row glass ${hoveredMemberId === String(member.id) ? 'drop-active' : ''}`}
+                onMouseEnter={() => setHoveredMemberId(String(member.id))}
+                onMouseLeave={() => setHoveredMemberId(null)}
+              >
                 <div className="swimlane-header">
                   <div className="member-info">
                     <div className="avatar-circle">
@@ -357,7 +478,6 @@ const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onPro
                   </div>
                 </div>
                 
-                {/* Grouping by Project */}
                 {(() => {
                   const projectGroups = {};
                   member.tasks.forEach(t => {
@@ -411,7 +531,6 @@ const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onPro
         )}
       </div>
 
-      {/* Task Creation/Edit Modal */}
       <AnimatePresence>
         {showTaskModal && (
           <div className="modal-overlay" onClick={() => setShowTaskModal(false)}>
@@ -451,16 +570,29 @@ const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onPro
                     </select>
                   </div>
 
-                  <div className="form-field">
-                    <label>담당자</label>
-                    <select 
-                      value={taskForm.assignee_id}
-                      onChange={(e) => setTaskForm({...taskForm, assignee_id: e.target.value})}
-                      className="glass-input"
-                    >
-                      <option value="">담당자 없음</option>
-                      {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-                    </select>
+                  <div className="form-field full">
+                    <label>담당자 배정 (여러 명 선택 가능)</label>
+                    <div className="assignee-selector-grid glass-pannel">
+                      {members.map(m => (
+                        <div 
+                          key={m.id} 
+                          className={`assignee-chip-item ${taskForm.assignee_ids.includes(String(m.id)) ? 'selected' : ''}`}
+                          onClick={() => {
+                            const ids = [...taskForm.assignee_ids];
+                            if (ids.includes(String(m.id))) {
+                              setTaskForm({ ...taskForm, assignee_ids: ids.filter(id => id !== String(m.id)) });
+                            } else {
+                              setTaskForm({ ...taskForm, assignee_ids: [...ids, String(m.id)] });
+                            }
+                          }}
+                        >
+                          <div className="chip-avatar">
+                            {m.avatar ? <img src={m.avatar} alt={m.name} /> : m.name[0]}
+                          </div>
+                          <span>{m.name}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
 
                   <div className="form-field">
@@ -514,7 +646,6 @@ const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onPro
         )}
       </AnimatePresence>
 
-      {/* Delete Confirmation Modal */}
       <AnimatePresence>
         {showDeleteModal && (
           <div className="modal-overlay" onClick={() => setShowDeleteModal(false)}>
@@ -545,6 +676,7 @@ const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onPro
           </div>
         )}
       </AnimatePresence>
+
     </div>
   );
 };

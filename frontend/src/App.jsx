@@ -28,6 +28,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from './lib/supabase';
 import TaskBoard from './components/TaskBoard';
 import IssueTracker from './components/IssueTracker';
+import { Toaster } from 'react-hot-toast';
 import './App.css';
 
 const statusMap = {
@@ -58,7 +59,8 @@ const App = () => {
     status: 'Development',
     area: '',
     progress: 0,
-    end_date: ''
+    end_date: '',
+    inspection_date: ''
   });
 
   // CRUD States (Members)
@@ -73,8 +75,15 @@ const App = () => {
     status: 'Active'
   });
 
+  const [selectedMemberProjects, setSelectedMemberProjects] = useState(null);
+
   const [errorStatus, setErrorStatus] = useState(null);
   const [debugLogs, setDebugLogs] = useState([]);
+
+  // Quick Assign States
+  const [showAssigneeModal, setShowAssigneeModal] = useState(false);
+  const [assigningTask, setAssigningTask] = useState(null);
+  const [selectedAssigneeIds, setSelectedAssigneeIds] = useState([]);
 
   const addLog = (msg) => {
     setDebugLogs(prev => [...prev.slice(-4), `${new Date().toLocaleTimeString()}: ${msg}`]);
@@ -135,7 +144,8 @@ const App = () => {
       status: 'Development',
       area: '',
       progress: 0,
-      end_date: ''
+      end_date: '',
+      inspection_date: ''
     });
     setShowFormModal(true);
   };
@@ -150,7 +160,8 @@ const App = () => {
       status: project.status,
       area: project.area,
       progress: project.progress,
-      end_date: project.end_date ? project.end_date.split('T')[0] : ''
+      end_date: project.end_date ? project.end_date.split('T')[0] : '',
+      inspection_date: project.inspection_date ? project.inspection_date.split('T')[0] : ''
     });
     setShowFormModal(true);
   };
@@ -167,7 +178,8 @@ const App = () => {
       // Data Cleaning: Convert empty end_date to null for Supabase
       const payload = {
         ...projectForm,
-        end_date: projectForm.end_date === '' ? null : projectForm.end_date
+        end_date: projectForm.end_date === '' ? null : projectForm.end_date,
+        inspection_date: projectForm.inspection_date === '' ? null : projectForm.inspection_date
       };
 
       if (editingProject) {
@@ -288,9 +300,41 @@ const App = () => {
   };
 
   const handleMemberClick = (memberId) => {
-    setTaskFilterMemberId(memberId);
-    setActiveMenu('tasks');
-    setSelectedProject(null); // Close modal if open
+    const member = allMembers.find(m => String(m.id) === String(memberId));
+    if (member) {
+      const memberProjects = projects.filter(p => p.members?.some(m => String(m.id) === String(memberId)));
+      setSelectedMemberProjects({ ...member, projects: memberProjects });
+    }
+  };
+
+  const openQuickAssignModal = (task) => {
+    setAssigningTask(task);
+    setSelectedAssigneeIds(task.assignee_ids ? task.assignee_ids.map(m => String(m)) : []);
+    setShowAssigneeModal(true);
+  };
+
+  const handleSaveQuickAssignees = async () => {
+    if (!assigningTask) return;
+    try {
+      setIsSubmitting(true);
+      await supabase.from('_TaskAssignees').delete().eq('B', assigningTask.id);
+      if (selectedAssigneeIds.length > 0) {
+        const relations = selectedAssigneeIds.map(mId => ({ A: mId, B: assigningTask.id }));
+        const { error } = await supabase.from('_TaskAssignees').insert(relations);
+        if (error) throw error;
+        for (const mId of selectedAssigneeIds) {
+          const { data: exists } = await supabase.from('_ProjectMembers').select('*').eq('A', mId).eq('B', assigningTask.project_id).maybeSingle();
+          if (!exists) await supabase.from('_ProjectMembers').insert([{ A: mId, B: assigningTask.project_id }]);
+        }
+      }
+      import('react-hot-toast').then(toast => toast.success('배정 정보가 업데이트되었어요! ✨'));
+      setShowAssigneeModal(false);
+      fetchProjects(); 
+    } catch (error) {
+      import('react-hot-toast').then(toast => toast.error('배정 중 오류가 발생했습니다. 😢'));
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   React.useEffect(() => {
@@ -439,6 +483,9 @@ const App = () => {
                           
                           <div className="card-meta">
                             <div className="meta-item"><Layers size={14} /> {project.area}</div>
+                            {project.inspection_date && (
+                              <div className="meta-item" title="검수일"><Search size={14} /> {new Date(project.inspection_date).toLocaleDateString()}</div>
+                            )}
                             {project.end_date && (
                               <div className="meta-item" title="종료일"><Calendar size={14} /> {new Date(project.end_date).toLocaleDateString()}</div>
                             )}
@@ -601,6 +648,7 @@ const App = () => {
                       </td>
                       <td><span className="group-tag small">{project.group_name}</span></td>
                       <td><div className={`badge badge-${project.status.toLowerCase()} small`}>{statusMap[project.status]}</div></td>
+                      <td><span className="date-cell">{project.inspection_date ? new Date(project.inspection_date).toLocaleDateString() : '-'}</span></td>
                       <td><span className="date-cell">{project.end_date ? new Date(project.end_date).toLocaleDateString() : '-'}</span></td>
                       <td className="col-progress">
                         <div className="progress-cell">
@@ -664,6 +712,7 @@ const App = () => {
               projects={projects} 
               initialMemberId={taskFilterMemberId} 
               onProjectUpdate={fetchProjects}
+              onQuickAssign={openQuickAssignModal}
             />
           </motion.div>
         );
@@ -706,10 +755,11 @@ const App = () => {
                   initial={{ opacity: 0, scale: 0.9 }}
                   animate={{ opacity: 1, scale: 1 }}
                   transition={{ delay: idx * 0.05 }}
+                  onClick={() => handleMemberClick(member.id)}
                 >
                   <div className="member-card-actions">
-                    <button className="icon-btn xs" onClick={() => openEditMemberModal(member)}><Settings size={14} /></button>
-                    <button className="icon-btn xs delete" onClick={() => handleDeleteMember(member.id)}><Trash2 size={14} /></button>
+                    <button className="icon-btn xs" onClick={(e) => { e.stopPropagation(); openEditMemberModal(member); }}><Settings size={14} /></button>
+                    <button className="icon-btn xs delete" onClick={(e) => { e.stopPropagation(); handleDeleteMember(member.id); }}><Trash2 size={14} /></button>
                   </div>
                   <div className="member-card-header">
                     <div className="member-avatar-giant">
@@ -849,7 +899,9 @@ const App = () => {
   };
 
   return (
-    <div className="dashboard-container">
+    <>
+      <Toaster position="top-right" reverseOrder={false} />
+      <div className="dashboard-container">
       {/* Sidebar */}
       <aside className="sidebar glass">
         <div className="logo-container">
@@ -1112,6 +1164,15 @@ const App = () => {
                     </div>
                   </div>
                   <div className="form-field">
+                    <label><Search size={14} /> 검수 예정일</label>
+                    <input 
+                      type="date" 
+                      value={projectForm.inspection_date}
+                      onChange={(e) => setProjectForm({...projectForm, inspection_date: e.target.value})}
+                      className="glass-input"
+                    />
+                  </div>
+                  <div className="form-field">
                     <label><Calendar size={14} /> 프로젝트 종료일</label>
                     <input 
                       type="date" 
@@ -1229,7 +1290,168 @@ const App = () => {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Member Projects Modal */}
+      <AnimatePresence>
+        {selectedMemberProjects && (
+          <div className="modal-overlay" onClick={() => setSelectedMemberProjects(null)}>
+            <motion.div 
+              className="modal-content glass premium-modal member-projects-modal"
+              initial={{ opacity: 0, scale: 0.9, y: 40 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              transition={{ type: "spring", damping: 25, stiffness: 300 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="modal-header">
+                <div className="member-profile-summary">
+                  <div className="member-avatar-giant">
+                    {selectedMemberProjects.avatar ? <img src={selectedMemberProjects.avatar} alt={selectedMemberProjects.name} /> : selectedMemberProjects.name[0]}
+                    <span className={`status-dot-large ${selectedMemberProjects.status.toLowerCase()}`}></span>
+                  </div>
+                  <div className="member-name-role">
+                    <h2>{selectedMemberProjects.name} 대표님</h2>
+                    <p>{selectedMemberProjects.role}</p>
+                  </div>
+                </div>
+                <button className="close-btn" onClick={() => setSelectedMemberProjects(null)}><X size={20} /></button>
+              </div>
+
+              <div className="modal-body custom-scrollbar">
+                <div className="member-projects-section">
+                  <h3 className="section-subtitle"><Briefcase size={16} /> 현재 참여 중인 프로젝트</h3>
+                  
+                  <div className="member-project-list">
+                    {selectedMemberProjects.projects.length > 0 ? (
+                      selectedMemberProjects.projects.map((project, idx) => (
+                        <motion.div 
+                          key={project.id} 
+                          className={`member-project-item glass-card status-${project.status.toLowerCase()}`}
+                          initial={{ opacity: 0, x: -20 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: idx * 0.1 }}
+                        >
+                          <div className="proj-info">
+                            <span className="proj-group">{project.group_name}</span>
+                            <h4 className="proj-title">{project.title}</h4>
+                          </div>
+                          <div className="proj-meta">
+                            <div className="proj-date">
+                              <Calendar size={14} />
+                              <span>{project.end_date ? new Date(project.end_date).toLocaleDateString() : '일정 미정'}</span>
+                            </div>
+                            <div className={`badge badge-${project.status.toLowerCase()} small`}>
+                              {statusMap[project.status]}
+                            </div>
+                          </div>
+                          <div className="proj-progress-mini">
+                            <div className="progress-bar-bg mini">
+                              <div 
+                                className={`progress-bar-fill fill-${project.status.toLowerCase()}`}
+                                style={{ width: `${project.progress}%` }}
+                              />
+                            </div>
+                            <span className="progress-percentText">{project.progress}%</span>
+                          </div>
+                        </motion.div>
+                      ))
+                    ) : (
+                      <div className="empty-projects">
+                        <Rocket size={40} className="empty-icon" />
+                        <p>현재 참여 중인 프로젝트가 없습니다.</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="modal-footer">
+                <button 
+                  className="action-btn primary" 
+                  onClick={() => {
+                    setTaskFilterMemberId(selectedMemberProjects.id);
+                    setActiveMenu('tasks');
+                    setSelectedMemberProjects(null);
+                  }}
+                >
+                  <CheckSquare size={18} /> 담당 작업 확인하기
+                </button>
+                <button className="action-btn outline" onClick={() => setSelectedMemberProjects(null)}>닫기</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Quick Assign Modal */}
+      <AnimatePresence>
+        {showAssigneeModal && assigningTask && (
+          <div className="modal-overlay" onClick={() => setShowAssigneeModal(false)}>
+            <motion.div 
+              className="modal-content glass premium-modal quick-assign-modal"
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="modal-header">
+                <div className="title-with-icon">
+                  <UserPlus size={20} className="text-indigo-400" />
+                  <div className="header-text">
+                    <h2>담당자 배정</h2>
+                    <p className="task-ref">#{assigningTask.content.substring(0, 15)}...</p>
+                  </div>
+                </div>
+                <button className="close-btn" onClick={() => setShowAssigneeModal(false)}>
+                  <Plus size={20} style={{ transform: 'rotate(45deg)' }} />
+                </button>
+              </div>
+              
+              <div className="modal-body custom-scrollbar">
+                <p className="modal-subtitle">이 작업에 함께할 팀원들을 선택해 주세요! 🧑‍🤝‍🧑</p>
+                <div className="assignee-selector-grid glass-pannel mt-4">
+                  {allMembers.map(m => (
+                    <div 
+                      key={m.id} 
+                      className={`assignee-chip-item ${selectedAssigneeIds.includes(String(m.id)) ? 'selected' : ''}`}
+                      onClick={() => {
+                        const ids = [...selectedAssigneeIds];
+                        if (ids.includes(String(m.id))) {
+                          setSelectedAssigneeIds(ids.filter(id => id !== String(m.id)));
+                        } else {
+                          setSelectedAssigneeIds([...ids, String(m.id)]);
+                        }
+                      }}
+                    >
+                      <div className="chip-avatar">
+                        {m.avatar ? <img src={m.avatar} alt={m.name} /> : m.name[0]}
+                      </div>
+                      <div className="chip-info">
+                        <span className="name">{m.name}</span>
+                        <span className="role">{m.role}</span>
+                      </div>
+                      {selectedAssigneeIds.includes(String(m.id)) && <CheckCircle size={14} className="check-icon" />}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="modal-footer">
+                <button className="action-btn outline" onClick={() => setShowAssigneeModal(false)}>취소</button>
+                <button 
+                  className="action-btn primary" 
+                  onClick={handleSaveQuickAssignees}
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting ? '저장 중...' : '배정 완료 ✨'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
+    </>
   );
 };
 
