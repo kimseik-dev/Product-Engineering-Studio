@@ -32,6 +32,7 @@ model Task {
   priority    String         @default("Medium")
   projectId   BigInt         @map("project_id")
   status      String         @default("To Do")
+  progress    Int            @default(0)
   dueDate     DateTime?      @map("due_date")
   assignees   TaskAssignee[]
   project     Project        @relation(fields: [projectId], references: [id])

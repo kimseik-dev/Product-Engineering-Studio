@@ -6,10 +6,15 @@
   "scripts": {
     "db:studio": "npx prisma studio",
     "db:push": "npx prisma db push",
-    "db:generate": "npx prisma generate"
+    "db:generate": "npx prisma generate",
+    "db:migrate-assignees": "node --loader ts-node/esm migrate_assignees.ts",
+    "type-check": "tsc --noEmit"
   },
   "devDependencies": {
-    "prisma": "^7.5.0"
+    "@types/pg": "^8.20.0",
+    "prisma": "^7.5.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.2"
   },
   "dependencies": {
     "@prisma/client": "^7.5.0",

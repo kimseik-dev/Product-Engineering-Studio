@@ -1,41 +1,42 @@
-import { PrismaClient } from '@prisma/client';
+import 'dotenv/config';
+import pg from 'pg';
 
-const prisma = new PrismaClient();
+const { Client } = pg;
 
 async function main() {
-  const tasks = await prisma.task.findMany({
-    where: {
-      assigneeId: {
-        not: null,
-      },
-    },
+  const client = new Client({
+    connectionString: process.env.DATABASE_URL,
+    ssl: {
+      rejectUnauthorized: false
+    }
   });
 
-  console.log(`Found ${tasks.length} tasks with assigneeId.`);
+  try {
+    await client.connect();
+    console.log('Connected to database! 🔌✨');
 
-  for (const task of tasks) {
-    if (task.assigneeId) {
-      // Connect to the new assignees relation
-      await prisma.task.update({
-        where: { id: task.id },
-        data: {
-          assignees: {
-            connect: { id: task.assigneeId },
-          },
-        },
-      });
-      console.log(`Migrated task ${task.id} (assigneeId: ${task.assigneeId})`);
+    // tasks 테이블의 컬럼 정보를 조회해요! 🔍
+    const res = await client.query(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name = 'tasks'
+    `);
+    
+    // 쿼리 결과의 타입을 정의해주면 TypeScript가 좋아해요! ✨
+    interface ColumnRow {
+      column_name: string;
     }
-  }
 
-  console.log('Migration complete!');
+    console.log('Columns in "tasks" table:');
+    (res.rows as ColumnRow[]).forEach(row => console.log(`- ${row.column_name}`));
+
+    console.log('\nInvestigation complete! 🧐✨');
+  } catch (err) {
+    console.error('❌ Investigation failed:', err);
+    process.exit(1);
+  } finally {
+    await client.end();
+  }
 }
 
-main()
-  .catch((e) => {
-    console.error(e);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+main();

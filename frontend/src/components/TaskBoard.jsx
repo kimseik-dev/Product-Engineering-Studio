@@ -61,7 +61,8 @@ const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onPro
     priority: 'Medium',
     due_date: '',
     project_id: '',
-    assignee_ids: []
+    assignee_ids: [],
+    progress: 0
   });
 
   // Delete Confirmation State
@@ -140,7 +141,8 @@ const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onPro
       priority: 'Medium',
       due_date: '',
       project_id: projects[0]?.id || '',
-      assignee_ids: []
+      assignee_ids: [],
+      progress: 0
     });
     setShowTaskModal(true);
   };
@@ -157,7 +159,8 @@ const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onPro
       priority: task.priority,
       due_date: task.due_date ? task.due_date.split('T')[0] : '',
       project_id: task.project_id,
-      assignee_ids: task.assignees ? task.assignees.map(m => String(m.id)) : []
+      assignee_ids: task.assignees ? task.assignees.map(m => String(m.id)) : [],
+      progress: task.progress || 0
     });
     setShowTaskModal(true);
   };
@@ -236,14 +239,23 @@ const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onPro
     return memberMatch && projectMatch;
   });
 
-  const membersWithTasks = members.map(m => ({
-    ...m,
-    tasks: tasks.filter(t => {
+  const membersWithTasks = members.map(m => {
+    const memberTasks = tasks.filter(t => {
       const assignedToMe = Array.isArray(t.assignees) && t.assignees.some(assignee => String(assignee.id) === String(m.id));
       const projectMatch = selectedProject === 'All' || String(t.project_id) === String(selectedProject);
       return assignedToMe && projectMatch;
-    })
-  })).filter(m => selectedMember === 'All' || String(m.id) === String(selectedMember));
+    });
+    
+    const memberProgress = memberTasks.length > 0 
+      ? Math.round(memberTasks.reduce((acc, t) => acc + (t.progress || 0), 0) / memberTasks.length) 
+      : 0;
+
+    return {
+      ...m,
+      tasks: memberTasks,
+      memberProgress
+    };
+  }).filter(m => selectedMember === 'All' || String(m.id) === String(selectedMember));
 
   const unassignedTasks = tasks.filter(t => {
     const noAssignee = !Array.isArray(t.assignees) || t.assignees.length === 0;
@@ -293,28 +305,47 @@ const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onPro
         </div>
       </div>
       <h4 className="task-card-title">{task.content}</h4>
-      <div className="task-card-footer">
-        <div className="task-project">
-          <Hash size={12} /> {task.project?.title || 'Unknown Project'}
-        </div>
-        <div className="task-assignees-avatars">
-          {Array.isArray(task.assignees) && task.assignees.length > 0 ? (
-            task.assignees.map(m => (
-              <div key={m.id} className="mini-avatar" title={m.name}>
-                {m.avatar ? <img src={m.avatar} alt={m.name} /> : m.name[0]}
+      <div className="task-card-footer-container flex flex-col mt-auto">
+        <div className="task-card-footer">
+          <div className="task-project">
+            <Hash size={12} /> {task.project?.title || 'Unknown'}
+          </div>
+          <div className="task-assignees-avatars">
+            {Array.isArray(task.assignees) && task.assignees.length > 0 ? (
+              task.assignees.map(m => (
+                <div key={m.id} className="mini-avatar" title={m.name}>
+                  {m.avatar ? <img src={m.avatar} alt={m.name} /> : m.name[0]}
+                </div>
+              ))
+            ) : (
+              <div className="no-assignee-v2" title="담당자 없음">
+                <User size={12} className="opacity-40" />
               </div>
-            ))
-          ) : (
-            <div className="no-assignee-v2" title="담당자 없음">
-              <User size={12} className="opacity-40" />
+            )}
+          </div>
+          {task.due_date && (
+            <div className="task-due text-xs opacity-70 flex items-center gap-1">
+              <Clock size={12} /> {new Date(task.due_date).toLocaleDateString()}
             </div>
           )}
         </div>
-        {task.due_date && (
-          <div className="task-due text-xs opacity-70">
-            <Clock size={12} /> {new Date(task.due_date).toLocaleDateString()}
+        
+        {/* Task Progress Bar */}
+        <div className="task-card-progress-wrapper mt-3 pt-2 border-t border-white/5">
+          <div className="flex justify-between text-[10px] opacity-60 mb-1.5 font-medium">
+            <span>진도율</span>
+            <span>{task.progress || 0}%</span>
           </div>
-        )}
+          <div className="task-progress-track bg-white/5 rounded-full h-1.5 overflow-hidden">
+            <div 
+              className="task-progress-fill h-full rounded-full transition-all duration-500 ease-out" 
+              style={{ 
+                width: `${task.progress || 0}%`,
+                background: (task.progress || 0) >= 100 ? 'var(--success-gradient)' : 'var(--info-gradient)'
+              }}
+            />
+          </div>
+        </div>
       </div>
     </motion.div>
   );
@@ -481,6 +512,24 @@ const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onPro
                       <span className="name">{member.name}</span>
                       <span className="role">{member.role}</span>
                     </div>
+
+                    {/* Individual Progress Bar in Swimlane Header */}
+                    <div className="member-swimlane-progress-box">
+                      <div className="swimlane-progress-meta">
+                        <span className="label">Personal Progress</span>
+                        <span className="value">{member.memberProgress}%</span>
+                      </div>
+                      <div className="swimlane-progress-track">
+                        <motion.div 
+                          initial={{ width: 0 }}
+                          animate={{ width: `${member.memberProgress}%` }}
+                          className="swimlane-progress-fill"
+                          style={{ 
+                            background: member.memberProgress >= 100 ? 'var(--success-gradient)' : 'var(--primary-gradient)'
+                          }}
+                        />
+                      </div>
+                    </div>
                   </div>
                 </div>
                 
@@ -561,6 +610,8 @@ const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onPro
                       value={taskForm.content}
                       onChange={(e) => setTaskForm({...taskForm, content: e.target.value})}
                       className="glass-input"
+                      rows={4}
+                      style={{ minHeight: '100px', resize: 'vertical', padding: '12px' }}
                     />
                   </div>
                   
@@ -633,6 +684,42 @@ const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onPro
                       onChange={(e) => setTaskForm({...taskForm, due_date: e.target.value})}
                       className="glass-input dark-calendar"
                     />
+                  </div>
+
+                  <div className="form-field full">
+                    <div className="flex justify-between items-center mb-2">
+                      <label>진도율 설정</label>
+                      <div className="progress-value-badge">
+                        <input 
+                          type="number" 
+                          min="0" 
+                          max="100" 
+                          value={taskForm.progress}
+                          onChange={(e) => {
+                            const val = Math.min(100, Math.max(0, parseInt(e.target.value) || 0));
+                            setTaskForm({...taskForm, progress: val});
+                          }}
+                          className="progress-number-input"
+                        />
+                        <span className="unit">%</span>
+                      </div>
+                    </div>
+                    <div className="progress-slider-container">
+                      <input 
+                        type="range" 
+                        min="0" 
+                        max="100" 
+                        step="5"
+                        value={taskForm.progress}
+                        onChange={(e) => setTaskForm({...taskForm, progress: parseInt(e.target.value)})}
+                        className="glass-range-slider"
+                      />
+                      <div className="slider-labels">
+                        <span>0%</span>
+                        <span>50%</span>
+                        <span>100%</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
