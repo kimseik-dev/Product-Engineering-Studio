@@ -22,12 +22,16 @@ import {
   Clock,
   CheckCircle,
   Eye,
-  EyeOff
+  EyeOff,
+  MessageSquare,
+  Check
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from './lib/supabase';
 import TaskBoard from './components/TaskBoard';
 import IssueTracker from './components/IssueTracker';
+import ShareBoard from './components/ShareBoard';
+import WritingPage from './components/WritingPage';
 import { Toaster, toast } from 'react-hot-toast';
 import './App.css';
 
@@ -38,6 +42,36 @@ const statusMap = {
   'Launch': '출시'
 };
 
+const AVATAR_LIST = [
+  { id: 'woman_1', path: '/avatars/woman_1.png', category: 'Female' },
+  { id: 'woman_2', path: '/avatars/woman_2.png', category: 'Female' },
+  { id: 'woman_3', path: '/avatars/woman_3.png', category: 'Female' },
+  { id: 'woman_4', path: '/avatars/woman_4.png', category: 'Female' },
+  { id: 'woman_5', path: '/avatars/woman_5.png', category: 'Female' },
+  { id: 'woman_6', path: '/avatars/woman_6.png', category: 'Female' },
+  { id: 'woman_7', path: '/avatars/woman_7.png', category: 'Female' },
+  { id: 'woman_8', path: '/avatars/woman_8.png', category: 'Female' },
+  { id: 'woman_9', path: '/avatars/woman_9.png', category: 'Female' },
+  { id: 'man_1', path: '/avatars/man_1.png', category: 'Male' },
+  { id: 'man_2', path: '/avatars/man_2.png', category: 'Male' },
+  { id: 'man_3', path: '/avatars/man_3.png', category: 'Male' },
+  { id: 'man_4', path: '/avatars/man_4.png', category: 'Male' },
+  { id: 'man_5', path: '/avatars/man_5.png', category: 'Male' },
+  { id: 'man_6', path: '/avatars/man_6.png', category: 'Male' },
+  { id: 'man_7', path: '/avatars/man_7.png', category: 'Male' },
+  { id: 'man_8', path: '/avatars/man_8.png', category: 'Male' },
+  { id: 'man_9', path: '/avatars/man_9.png', category: 'Male' },
+  { id: 'mixed_1', path: '/avatars/mixed_1.png', category: 'Premium' },
+  { id: 'mixed_2', path: '/avatars/mixed_2.png', category: 'Premium' },
+  { id: 'mixed_3', path: '/avatars/mixed_3.png', category: 'Premium' },
+  { id: 'mixed_4', path: '/avatars/mixed_4.png', category: 'Premium' },
+  { id: 'mixed_5', path: '/avatars/mixed_5.png', category: 'Premium' },
+  { id: 'mixed_6', path: '/avatars/mixed_6.png', category: 'Premium' },
+  { id: 'mixed_7', path: '/avatars/mixed_7.png', category: 'Premium' },
+  { id: 'mixed_8', path: '/avatars/mixed_8.png', category: 'Premium' },
+  { id: 'mixed_9', path: '/avatars/mixed_9.png', category: 'Premium' },
+];
+
 const App = () => {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -47,6 +81,10 @@ const App = () => {
   const [activeMenu, setActiveMenu] = useState('dashboard');
   const [taskFilterMemberId, setTaskFilterMemberId] = useState('All');
   const [showCompleted, setShowCompleted] = useState(true);
+
+  // Writing Page States
+  const [isWritingContent, setIsWritingContent] = useState(false);
+  const [editingPost, setEditingPost] = useState(null);
 
   // CRUD States (Projects)
   const [showFormModal, setShowFormModal] = useState(false);
@@ -75,6 +113,21 @@ const App = () => {
     status: 'Active'
   });
 
+  // Delete Confirmation States
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [memberToDelete, setMemberToDelete] = useState(null);
+
+  // Category States
+  const [categories, setCategories] = useState([]);
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [editingCategory, setEditingCategory] = useState(null);
+  const [isSubmittingCategory, setIsSubmittingCategory] = useState(false);
+  const [categoryForm, setCategoryForm] = useState({
+    name: '',
+    label: '',
+    color: '#6366f1'
+  });
+
   const [selectedMemberProjects, setSelectedMemberProjects] = useState(null);
 
   const [errorStatus, setErrorStatus] = useState(null);
@@ -87,6 +140,79 @@ const App = () => {
 
   const addLog = (msg) => {
     setDebugLogs(prev => [...prev.slice(-4), `${new Date().toLocaleTimeString()}: ${msg}`]);
+  };
+
+  const fetchCategories = async () => {
+    try {
+      const { data, error } = await supabase.from('post_categories').select('*').order('id', { ascending: true });
+      if (error) throw error;
+      
+      // Seed if empty
+      if (data.length === 0) {
+        const initial = [
+          { name: 'General', label: '일반', color: '#6366f1' },
+          { name: 'Notice', label: '공지사항', color: '#ef4444' },
+          { name: 'Tip', label: '팁/노하우', color: '#10b981' },
+          { name: 'Reference', label: '참고자료', color: '#f59e0b' }
+        ];
+        const { error: seedErr } = await supabase.from('post_categories').insert(initial);
+        if (seedErr) throw seedErr;
+        const { data: seeded } = await supabase.from('post_categories').select('*').order('id', { ascending: true });
+        setCategories(seeded);
+      } else {
+        setCategories(data);
+      }
+    } catch (error) {
+      console.error('Category fetch error:', error.message);
+    }
+  };
+
+  const handleSaveCategory = async () => {
+    if (!categoryForm.name || !categoryForm.label) {
+      toast.error('필수 정보를 모두 입력해주세요! ✨');
+      return;
+    }
+    try {
+      setIsSubmittingCategory(true);
+      if (editingCategory) {
+        const { error } = await supabase.from('post_categories').update(categoryForm).eq('id', editingCategory.id);
+        if (error) throw error;
+        toast.success('카테고리가 수정되었습니다! 👍');
+      } else {
+        // name 중복 체크
+        const { data: existing } = await supabase.from('post_categories').select('id').eq('name', categoryForm.name).maybeSingle();
+        if (existing) {
+          toast.error('이미 존재하는 식별 키입니다. 다른 키를 입력해주세요! 😅');
+          return;
+        }
+
+        const { error } = await supabase.from('post_categories').insert([categoryForm]);
+        if (error) {
+          console.error('Category insert error detail:', error);
+          throw error;
+        }
+        toast.success('새 카테고리가 등록되었습니다! 🚀');
+      }
+      setShowCategoryModal(false);
+      fetchCategories();
+    } catch (error) {
+      console.error('Category save error:', error);
+      toast.error(`저장 오류: ${error.message || '알 수 없는 오류가 발생했습니다.'}`);
+    } finally {
+      setIsSubmittingCategory(false);
+    }
+  };
+
+  const handleDeleteCategory = async (id) => {
+    if (!window.confirm('이 카테고리를 정말 삭제할까요? 관련 게시글의 카테고리가 초기화될 수 있어요.')) return;
+    try {
+      const { error } = await supabase.from('post_categories').delete().eq('id', id);
+      if (error) throw error;
+      toast.success('카테고리가 삭제되었습니다.');
+      fetchCategories();
+    } catch (error) {
+      toast.error(`삭제 오류: ${error.message}`);
+    }
   };
 
   const fetchProjects = async () => {
@@ -282,23 +408,29 @@ const App = () => {
     }
   };
 
-  const handleDeleteMember = async (id) => {
-    if (!window.confirm('정말 이 팀원을 삭제하시겠어요? 삭제 시 모든 프로젝트 배정에서도 제외됩니다. ⚠️')) return;
+  const handleDeleteMember = (member) => {
+    setMemberToDelete(member);
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmDeleteMember = async () => {
+    if (!memberToDelete) return;
     try {
       setLoading(true);
-      // Prisma says _ProjectMembers is relation table. 
-      // Deleting member will typically cascade if defined, but better fetch again.
       const { error } = await supabase
         .from('members')
         .delete()
-        .eq('id', id);
+        .eq('id', memberToDelete.id);
       if (error) throw error;
-      addLog(`Member ID ${id} deleted.`);
+      toast.success(`${memberToDelete.name} 님과 작별했습니다. 😢`);
+      addLog(`Member ID ${memberToDelete.id} deleted.`);
+      setShowDeleteConfirm(false);
       fetchProjects();
     } catch (error) {
-      alert(`삭제 중 오류가 발생했어요: ${error.message}`);
+      toast.error(`삭제 중 오류가 발생했어요: ${error.message}`);
     } finally {
       setLoading(false);
+      setMemberToDelete(null);
     }
   };
 
@@ -342,13 +474,15 @@ const App = () => {
 
   React.useEffect(() => {
     fetchProjects();
+    fetchCategories();
 
-    // Set up Realtime subscription for projects and members
+    // Set up Realtime subscription for projects, members, and categories
     const channels = supabase.channel('pes_db_changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'projects' }, () => fetchProjects())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'members' }, () => fetchProjects())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'project_members' }, () => fetchProjects())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'issues' }, () => fetchProjects())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'post_categories' }, () => fetchCategories())
       .subscribe();
 
     return () => {
@@ -371,13 +505,14 @@ const App = () => {
   ];
 
   const menuItems = [
-    { id: 'dashboard', label: '대시보드', icon: LayoutDashboard },
-    { id: 'projects', label: '프로젝트', icon: Briefcase },
-    { id: 'tasks', label: '작업', icon: CheckSquare },
-    { id: 'issues', label: '이슈', icon: AlertTriangle },
-    { id: 'team', label: '팀', icon: Users },
-    { id: 'completed', label: '완료된 프로젝트', icon: CheckCircle },
-    { id: 'settings', label: '설정', icon: Settings },
+    { id: 'dashboard', label: '대시보드', icon: LayoutDashboard, category: 'work' },
+    { id: 'projects', label: '프로젝트', icon: Briefcase, category: 'work' },
+    { id: 'tasks', label: '작업', icon: CheckSquare, category: 'work' },
+    { id: 'issues', label: '이슈', icon: AlertTriangle, category: 'work' },
+    { id: 'completed', label: '완료된 프로젝트', icon: CheckCircle, category: 'work' },
+    { id: 'knowledge', label: '정보 공유', icon: MessageSquare, category: 'community' },
+    { id: 'team', label: '팀', icon: Users, category: 'community' },
+    { id: 'settings', label: '설정', icon: Settings, category: 'system' },
   ];
 
   const renderContent = () => {
@@ -733,6 +868,23 @@ const App = () => {
             />
           </motion.div>
         );
+      case 'knowledge':
+        return (
+          <motion.div 
+            className="knowledge-view"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+          >
+            <ShareBoard 
+              members={allMembers} 
+              categories={categories}
+              onOpenWriter={(post) => {
+                setEditingPost(post);
+                setIsWritingContent(true);
+              }}
+            />
+          </motion.div>
+        );
       case 'team':
         return (
           <motion.div 
@@ -762,7 +914,7 @@ const App = () => {
                 >
                   <div className="member-card-actions">
                     <button className="icon-btn xs" onClick={(e) => { e.stopPropagation(); openEditMemberModal(member); }}><Settings size={14} /></button>
-                    <button className="icon-btn xs delete" onClick={(e) => { e.stopPropagation(); handleDeleteMember(member.id); }}><Trash2 size={14} /></button>
+                    <button className="icon-btn xs delete" onClick={(e) => { e.stopPropagation(); handleDeleteMember(member); }}><Trash2 size={14} /></button>
                   </div>
                   <div className="member-card-header">
                     <div className="member-avatar-giant">
@@ -793,12 +945,61 @@ const App = () => {
       case 'settings':
         return (
           <motion.div 
-            className="menu-placeholder-view glass"
-            initial={{ opacity: 0, rotate: -2 }}
-            animate={{ opacity: 1, rotate: 0 }}
+            className="projects-list-view"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
           >
-            <h2>⚙️ 환경 설정</h2>
-            <p>알림 설정부터 프로필 관리까지! (영자가 안전하게 세팅해드릴게요~ 🛠️)</p>
+            <div className="list-header glass">
+              <div className="list-title-area">
+                <h2>⚙️ 환경 설정</h2>
+                <p>시스템 전반의 설정을 영자와 함께 관리해보세요! ✨</p>
+              </div>
+            </div>
+
+            <div className="settings-section glass mt-6" style={{ padding: '30px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                <div>
+                  <h3 style={{ fontSize: '20px', fontWeight: 700 }}>📁 정보 공유 카테고리 관리</h3>
+                  <p style={{ fontSize: '14px', color: 'rgba(255,255,255,0.5)' }}>정보 공유 게시판에서 사용할 카테고리를 추가하거나 수정할 수 있어요.</p>
+                </div>
+                <button 
+                  className="action-btn primary" 
+                  onClick={() => {
+                    setEditingCategory(null);
+                    setCategoryForm({ name: '', label: '', color: '#6366f1' });
+                    setShowCategoryModal(true);
+                  }}
+                >
+                  <Plus size={18} /> 새 카테고리 추가
+                </button>
+              </div>
+
+              <div className="categories-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' }}>
+                {categories.map(cat => (
+                  <motion.div 
+                    key={cat.id} 
+                    className="category-card glass"
+                    whileHover={{ scale: 1.02 }}
+                    style={{ padding: '20px', position: 'relative', borderLeft: `4px solid ${cat.color || '#6366f1'}` }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div>
+                        <div style={{ fontSize: '18px', fontWeight: 700 }}>{cat.label}</div>
+                        <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.4)', marginTop: '4px' }}>Key: {cat.name}</div>
+                      </div>
+                      <div className="card-actions" style={{ display: 'flex', gap: '8px' }}>
+                        <button className="icon-btn xs" onClick={() => {
+                          setEditingCategory(cat);
+                          setCategoryForm({ name: cat.name, label: cat.label, color: cat.color || '#6366f1' });
+                          setShowCategoryModal(true);
+                        }}><Settings size={14} /></button>
+                        <button className="icon-btn xs danger" onClick={() => handleDeleteCategory(cat.id)}><Trash2 size={14} /></button>
+                      </div>
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+            </div>
           </motion.div>
         );
       case 'completed':
@@ -904,7 +1105,23 @@ const App = () => {
   return (
     <>
       <Toaster position="top-right" reverseOrder={false} />
-      <div className="dashboard-container">
+      <AnimatePresence mode="wait">
+        {isWritingContent ? (
+          <WritingPage 
+            key="writing-page"
+            editData={editingPost}
+            onClose={() => {
+              setIsWritingContent(false);
+              setEditingPost(null);
+            }}
+            onSaveSuccess={() => {
+              setIsWritingContent(false);
+              setEditingPost(null);
+            }}
+            categories={categories}
+          />
+        ) : (
+          <div className="dashboard-container">
       {/* Sidebar */}
       <aside className="sidebar glass">
         <div className="logo-container">
@@ -912,7 +1129,13 @@ const App = () => {
           <h2 className="logo-text">HERO</h2>
         </div>
         <nav className="nav-menu">
-          {menuItems.map((item) => (
+          <button className="create-project-btn" onClick={openCreateModal}>
+            <Rocket size={18} /> 새 프로젝트 추가
+          </button>
+          <div className="nav-divider" style={{ margin: '15px 0' }}></div>
+          
+          <div className="menu-group-title" style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '1px', padding: '0 10px', marginBottom: '8px' }}>업무 관리</div>
+          {menuItems.filter(i => i.category === 'work').map((item) => (
             <div 
               key={item.id}
               className={`nav-item ${activeMenu === item.id ? 'active' : ''}`}
@@ -925,10 +1148,37 @@ const App = () => {
               {item.label}
             </div>
           ))}
-          <div className="nav-divider"></div>
-          <button className="create-project-btn" onClick={openCreateModal}>
-            <Rocket size={18} /> 새 프로젝트 추가
-          </button>
+
+          <div style={{ marginTop: '20px' }}></div>
+          <div className="menu-group-title" style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '1px', padding: '0 10px', marginBottom: '8px' }}>커뮤니티</div>
+          {menuItems.filter(i => i.category === 'community').map((item) => (
+            <div 
+              key={item.id}
+              className={`nav-item ${activeMenu === item.id ? 'active' : ''}`}
+              onClick={() => {
+                setActiveMenu(item.id);
+                if (item.id !== 'tasks') setTaskFilterMemberId('All');
+              }}
+            >
+              <item.icon size={20} />
+              {item.label}
+            </div>
+          ))}
+
+          <div className="nav-divider" style={{ margin: '15px 0' }}></div>
+          {menuItems.filter(i => i.category === 'system').map((item) => (
+            <div 
+              key={item.id}
+              className={`nav-item ${activeMenu === item.id ? 'active' : ''}`}
+              onClick={() => {
+                setActiveMenu(item.id);
+                if (item.id !== 'tasks') setTaskFilterMemberId('All');
+              }}
+            >
+              <item.icon size={20} />
+              {item.label}
+            </div>
+          ))}
         </nav>
         <div className="sidebar-footer">
           <p className="footer-text">Built by 김부장🎨</p>
@@ -958,9 +1208,9 @@ const App = () => {
         </header>
 
         <AnimatePresence mode="wait">
-          <React.Fragment key={activeMenu}>
-            {renderContent()}
-          </React.Fragment>
+                <React.Fragment key={activeMenu}>
+                  {renderContent()}
+                </React.Fragment>
         </AnimatePresence>
       </main>
 
@@ -1245,7 +1495,29 @@ const App = () => {
                     </select>
                   </div>
                   <div className="form-field full">
-                    <label>아바타 이미지 URL</label>
+                    <label>아바타 선택</label>
+                    <div className="avatar-picker-container custom-scrollbar">
+                      <div className="avatar-picker-grid">
+                        {AVATAR_LIST.map((av) => (
+                          <div 
+                            key={av.id}
+                            className={`avatar-picker-item ${memberForm.avatar === av.path ? 'active' : ''}`}
+                            onClick={() => setMemberForm({...memberForm, avatar: av.path})}
+                            title={av.category}
+                          >
+                            <img src={av.path} alt={av.id} />
+                            {memberForm.avatar === av.path && (
+                              <div className="avatar-selected-badge">
+                                <Check size={12} />
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="form-field full">
+                    <label>아바타 이미지 URL (또는 직접 입력)</label>
                     <input 
                       type="text" 
                       placeholder="https://..."
@@ -1453,7 +1725,148 @@ const App = () => {
           </div>
         )}
       </AnimatePresence>
-    </div>
+      {/* Category Management Modal */}
+      <AnimatePresence>
+        {showCategoryModal && (
+          <div className="modal-overlay" onClick={() => setShowCategoryModal(false)}>
+            <motion.div 
+              className="modal-content glass premium-modal category-modal"
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              onClick={(e) => e.stopPropagation()}
+              style={{ maxWidth: '450px' }}
+            >
+              <div className="modal-header">
+                <div className="title-with-icon">
+                  <Hash size={20} className="text-indigo-400" />
+                  <h2>{editingCategory ? '카테고리 수정' : '새 카테고리 추가'}</h2>
+                </div>
+                <button className="close-btn" onClick={() => setShowCategoryModal(false)}>
+                  <Plus size={20} style={{ transform: 'rotate(45deg)' }} />
+                </button>
+              </div>
+
+              <div className="modal-body">
+                <div className="form-group mb-4">
+                  <label>식별 키 (영문/숫자)</label>
+                  <input 
+                    type="text" 
+                    className="glass-input" 
+                    placeholder="예: notice, tip, QnA"
+                    value={categoryForm.name}
+                    onChange={(e) => setCategoryForm({ ...categoryForm, name: e.target.value })}
+                    disabled={!!editingCategory}
+                  />
+                  <p className="input-hint">시스템 내부 식별용이며 수정이 불가능해요.</p>
+                </div>
+                <div className="form-group mb-4">
+                  <label>카테고리 명 (표시용)</label>
+                  <input 
+                    type="text" 
+                    className="glass-input" 
+                    placeholder="예: 공지사항, 팁/노하우"
+                    value={categoryForm.label}
+                    onChange={(e) => setCategoryForm({ ...categoryForm, label: e.target.value })}
+                  />
+                </div>
+                <div className="form-group mb-4">
+                  <label>포인트 컬러</label>
+                  <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                    <input 
+                      type="color" 
+                      value={categoryForm.color}
+                      onChange={(e) => setCategoryForm({ ...categoryForm, color: e.target.value })}
+                      style={{ width: '50px', height: '40px', border: 'none', background: 'transparent', cursor: 'pointer' }}
+                    />
+                    <input 
+                      type="text" 
+                      className="glass-input" 
+                      value={categoryForm.color}
+                      onChange={(e) => setCategoryForm({ ...categoryForm, color: e.target.value })}
+                      style={{ flex: 1 }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="modal-footer">
+                <button className="action-btn outline" onClick={() => setShowCategoryModal(false)}>취소</button>
+                <button 
+                  className="action-btn primary" 
+                  onClick={handleSaveCategory}
+                  disabled={isSubmittingCategory}
+                >
+                  {isSubmittingCategory ? '저장 중...' : (editingCategory ? '수정 완료 👍' : '등록하기 🚀')}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Custom Member Delete Confirmation Modal */}
+      <AnimatePresence>
+        {showDeleteConfirm && memberToDelete && (
+          <div className="modal-overlay danger-mood" onClick={() => setShowDeleteConfirm(false)}>
+            <motion.div 
+              className="modal-content glass premium-modal delete-confirm-modal"
+              initial={{ opacity: 0, scale: 0.9, y: 30 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              onClick={(e) => e.stopPropagation()}
+              style={{ maxWidth: '420px', textAlign: 'center' }}
+            >
+              <div className="modal-decoration">
+                <div className="glow-orb red"></div>
+              </div>
+              
+              <div className="modal-header-centered">
+                <div className="warning-icon-wrapper">
+                  <AlertTriangle size={36} className="text-red-500" />
+                </div>
+                <h2>팀원 삭제 확인</h2>
+                <p className="modal-subtitle">정말 이 팀원과 작별하시겠습니까? 😢</p>
+              </div>
+
+              <div className="modal-body">
+                <div className="target-member-preview">
+                  <div className="member-avatar-large">
+                    {memberToDelete.avatar ? <img src={memberToDelete.avatar} alt={memberToDelete.name} /> : memberToDelete.name[0]}
+                  </div>
+                  <h3 className="text-xl font-bold text-white mb-1">{memberToDelete.name}</h3>
+                  <p className="text-sm text-gray-400">{memberToDelete.role}</p>
+                </div>
+                
+                <div className="mt-6 px-8">
+                  <p className="text-xs text-red-400 opacity-70 leading-relaxed">
+                    ⚠️ 삭제 시 모든 배정된 업무에서도 제외되며,<br/>이 작업은 되돌릴 수 없습니다.
+                  </p>
+                </div>
+              </div>
+
+              <div className="modal-footer danger-footer">
+                <button 
+                  className="action-btn outline" 
+                  onClick={() => setShowDeleteConfirm(false)}
+                >
+                  취소
+                </button>
+                <button 
+                  className="action-btn primary danger-btn" 
+                  onClick={confirmDeleteMember}
+                  disabled={loading}
+                >
+                  {loading ? '처리 중...' : '삭제하기'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+          </div> // closes dashboard-container
+        )} {/* closes ternary */}
+      </AnimatePresence>
     </>
   );
 };

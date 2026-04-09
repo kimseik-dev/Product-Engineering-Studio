@@ -53,6 +53,7 @@ const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onPro
 
   // Task CRUD State
   const [showTaskModal, setShowTaskModal] = useState(false);
+  const [showContentModal, setShowContentModal] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [taskForm, setTaskForm] = useState({
@@ -605,14 +606,20 @@ const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onPro
                 <div className="form-grid">
                   <div className="form-field full">
                     <label>작업 내용</label>
-                    <textarea 
-                      placeholder="무슨 일을 해야 하나요?"
-                      value={taskForm.content}
-                      onChange={(e) => setTaskForm({...taskForm, content: e.target.value})}
-                      className="glass-input"
-                      rows={4}
-                      style={{ minHeight: '100px', resize: 'vertical', padding: '12px' }}
-                    />
+                    <div 
+                      className="glass-input clickable-textarea-trigger"
+                      onClick={() => setShowContentModal(true)}
+                      style={{ 
+                        minHeight: '100px', 
+                        padding: '12px', 
+                        cursor: 'pointer',
+                        whiteSpace: 'pre-wrap',
+                        overflow: 'hidden',
+                        opacity: taskForm.content ? 1 : 0.6
+                      }}
+                    >
+                      {taskForm.content || "여기를 클릭해서 작업 내용을 상세하게 작성하세요..."}
+                    </div>
                   </div>
                   
                   <div className="form-field">
@@ -764,6 +771,46 @@ const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onPro
                   {isSubmitting ? '삭제 중...' : '네, 삭제할게요'}
                 </button>
                 <button className="action-btn outline" onClick={() => setShowDeleteModal(false)}>아니오</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showContentModal && (
+          <div className="modal-overlay" style={{ zIndex: 9999 }} onClick={() => setShowContentModal(false)}>
+            <motion.div 
+              className="modal-content glass premium-modal"
+              initial={{ opacity: 0, scale: 0.9, y: 40 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              style={{ width: '90%', maxWidth: '800px', height: '80vh', display: 'flex', flexDirection: 'column' }}
+            >
+              <div className="modal-header">
+                <h2>작업 내용 (상세 편집)</h2>
+                <button className="close-btn" onClick={() => setShowContentModal(false)}><Plus size={20} style={{ transform: 'rotate(45deg)' }} /></button>
+              </div>
+              
+              <div className="form-body" style={{ flex: 1, display: 'flex', flexDirection: 'column', paddingTop: '20px' }}>
+                <textarea 
+                  placeholder="작업 내용을 자세히 입력해주세요."
+                  value={taskForm.content}
+                  onChange={(e) => setTaskForm({...taskForm, content: e.target.value})}
+                  className="glass-input custom-scrollbar"
+                  style={{ flex: 1, resize: 'none', padding: '16px', fontSize: '15px' }}
+                  autoFocus
+                />
+              </div>
+              
+              <div className="modal-footer" style={{ marginTop: '20px' }}>
+                <button 
+                  className="action-btn primary" 
+                  onClick={() => setShowContentModal(false)}
+                >
+                  <CheckCircle size={18} /> 내용 확정
+                </button>
               </div>
             </motion.div>
           </div>
