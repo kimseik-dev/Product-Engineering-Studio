@@ -801,11 +801,11 @@ const App = () => {
                       </td>
                       <td><span className="area-label">{project.area}</span></td>
                       <td className="members-cell">
-                        <div className="member-avatars">
+                        <div className="member-avatars mini">
                           {project.members && project.members.slice(0, 3).map(m => (
                             <div 
                               key={m.id} 
-                              className="member-avatar mini cursor-pointer" 
+                              className="avatar-circle mini cursor-pointer" 
                               title={`${m.name} (${m.role})`}
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -816,7 +816,7 @@ const App = () => {
                             </div>
                           ))}
                           {project.members && project.members.length > 3 && (
-                            <div className="member-avatar-more">+{project.members.length - 3}</div>
+                            <div className="avatar-circle mini more">+{project.members.length - 3}</div>
                           )}
                         </div>
                       </td>
