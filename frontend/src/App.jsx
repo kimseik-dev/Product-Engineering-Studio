@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   LayoutDashboard, 
   Briefcase, 
@@ -24,7 +24,9 @@ import {
   Eye,
   EyeOff,
   MessageSquare,
-  Check
+  Check,
+  CalendarClock,
+  NotebookPen
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from './lib/supabase';
@@ -32,15 +34,92 @@ import TaskBoard from './components/TaskBoard';
 import IssueTracker from './components/IssueTracker';
 import ShareBoard from './components/ShareBoard';
 import WritingPage from './components/WritingPage';
+import DailyLog from './components/DailyLog';
+import CompletedProjects from './components/CompletedProjects';
+import PhaseTimeline, { getProjectPhaseStatus } from './components/PhaseTimeline';
+
+const PhaseBadge = ({ project, size = 'normal' }) => {
+  const status = getProjectPhaseStatus(project);
+  if (status.state === 'empty') return null;
+
+  const base = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 4,
+    padding: size === 'small' ? '2px 8px' : '3px 10px',
+    borderRadius: 999,
+    fontSize: size === 'small' ? 10 : 11,
+    fontWeight: 700,
+    border: '1px solid',
+    whiteSpace: 'nowrap',
+  };
+
+  if (status.state === 'active') {
+    const urgent = status.daysLeft <= 2;
+    return (
+      <span style={{
+        ...base,
+        background: `${status.phase.color}22`,
+        color: status.phase.color,
+        borderColor: `${status.phase.color}55`,
+      }}>
+        {status.phase.emoji} {status.phase.label} 중
+        {urgent && <span style={{ opacity: 0.75 }}> · D-{status.daysLeft}</span>}
+      </span>
+    );
+  }
+  if (status.state === 'overdue') {
+    return (
+      <span style={{
+        ...base,
+        background: 'rgba(248,113,113,0.14)',
+        color: '#fca5a5',
+        borderColor: 'rgba(248,113,113,0.4)',
+      }}>
+        ⚠️ {status.phase.label} 지연 {status.daysOver}일
+      </span>
+    );
+  }
+  if (status.state === 'upcoming') {
+    return (
+      <span style={{
+        ...base,
+        background: 'rgba(96,165,250,0.1)',
+        color: '#93c5fd',
+        borderColor: 'rgba(96,165,250,0.25)',
+      }}>
+        {status.phase.emoji} {status.phase.label} D-{status.daysUntil}
+      </span>
+    );
+  }
+  if (status.state === 'completed') {
+    return (
+      <span style={{
+        ...base,
+        background: 'rgba(74,222,128,0.1)',
+        color: '#86efac',
+        borderColor: 'rgba(74,222,128,0.25)',
+      }}>
+        ✅ 단계 완료
+      </span>
+    );
+  }
+  return null;
+};
 import { Toaster, toast } from 'react-hot-toast';
 import './App.css';
 
 const statusMap = {
   'All': '전체',
-  'Development': '개발 중',
-  'Review': '검수 중',
+  'Planning': '기획',
+  'Design': '디자인',
+  'Development': '개발',
+  'Review': '검수',
   'Launch': '출시'
 };
+
+// 멤버 가용성 블로커: 검수·출시는 제외
+const BLOCKING_STATUSES = ['Planning', 'Design', 'Development'];
 
 const AVATAR_LIST = [
   { id: 'woman_1', path: '/avatars/woman_1.png', category: 'Female' },
@@ -81,6 +160,7 @@ const App = () => {
   const [activeMenu, setActiveMenu] = useState('dashboard');
   const [taskFilterMemberId, setTaskFilterMemberId] = useState('All');
   const [showCompleted, setShowCompleted] = useState(true);
+  const [availabilityBasis, setAvailabilityBasis] = useState('auto'); // auto | development | inspection
 
   // Writing Page States
   const [isWritingContent, setIsWritingContent] = useState(false);
@@ -90,7 +170,7 @@ const App = () => {
   const [showFormModal, setShowFormModal] = useState(false);
   const [editingProject, setEditingProject] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [projectForm, setProjectForm] = useState({
+  const emptyProjectForm = {
     title: '',
     group_name: '',
     task: '',
@@ -98,8 +178,17 @@ const App = () => {
     area: '',
     progress: 0,
     end_date: '',
-    inspection_date: ''
-  });
+    inspection_date: '',
+    planning_start: '',
+    planning_end: '',
+    design_start: '',
+    design_end: '',
+    development_start: '',
+    development_end: '',
+    test_start: '',
+    test_end: '',
+  };
+  const [projectForm, setProjectForm] = useState(emptyProjectForm);
 
   // CRUD States (Members)
   const [allMembers, setAllMembers] = useState([]);
@@ -266,22 +355,14 @@ const App = () => {
 
   const openCreateModal = () => {
     setEditingProject(null);
-    setProjectForm({
-      title: '',
-      group_name: '',
-      task: '',
-      status: 'Development',
-      area: '',
-      progress: 0,
-      end_date: '',
-      inspection_date: ''
-    });
+    setProjectForm(emptyProjectForm);
     setShowFormModal(true);
   };
 
   const openEditModal = (e, project) => {
     e?.stopPropagation();
     setEditingProject(project);
+    const toISOField = (v) => (v ? String(v).split('T')[0] : '');
     setProjectForm({
       title: project.title,
       group_name: project.group_name,
@@ -289,8 +370,16 @@ const App = () => {
       status: project.status,
       area: project.area,
       progress: project.progress,
-      end_date: project.end_date ? project.end_date.split('T')[0] : '',
-      inspection_date: project.inspection_date ? project.inspection_date.split('T')[0] : ''
+      end_date: toISOField(project.end_date),
+      inspection_date: toISOField(project.inspection_date),
+      planning_start: toISOField(project.planning_start),
+      planning_end: toISOField(project.planning_end),
+      design_start: toISOField(project.design_start),
+      design_end: toISOField(project.design_end),
+      development_start: toISOField(project.development_start),
+      development_end: toISOField(project.development_end),
+      test_start: toISOField(project.test_start),
+      test_end: toISOField(project.test_end),
     });
     setShowFormModal(true);
   };
@@ -305,10 +394,19 @@ const App = () => {
       setIsSubmitting(true);
       
       // Data Cleaning: Convert empty end_date to null for Supabase
+      const toNull = (v) => (v === '' || v == null ? null : v);
       const payload = {
         ...projectForm,
-        end_date: projectForm.end_date === '' ? null : projectForm.end_date,
-        inspection_date: projectForm.inspection_date === '' ? null : projectForm.inspection_date
+        end_date: toNull(projectForm.end_date),
+        inspection_date: toNull(projectForm.inspection_date),
+        planning_start: toNull(projectForm.planning_start),
+        planning_end: toNull(projectForm.planning_end),
+        design_start: toNull(projectForm.design_start),
+        design_end: toNull(projectForm.design_end),
+        development_start: toNull(projectForm.development_start),
+        development_end: toNull(projectForm.development_end),
+        test_start: toNull(projectForm.test_start),
+        test_end: toNull(projectForm.test_end),
       };
 
       if (editingProject) {
@@ -498,17 +596,75 @@ const App = () => {
   });
 
   const stats = [
-    { label: '대기 중', value: projects.filter(p => !p.status || p.status === 'Pending').length, color: 'rgba(255, 255, 255, 0.5)' },
-    { label: '진행 중', value: projects.filter(p => p.status === 'Development').length, color: 'var(--info-gradient)' },
-    { label: '검수 중', value: projects.filter(p => p.status === 'Review').length, color: 'var(--primary-gradient)' },
-    { label: '완료', value: projects.filter(p => p.status === 'Launch').length, color: 'var(--success-gradient)' },
+    { label: '기획', value: projects.filter(p => p.status === 'Planning').length, color: 'linear-gradient(135deg, #a78bfa, #c4b5fd)' },
+    { label: '디자인', value: projects.filter(p => p.status === 'Design').length, color: 'linear-gradient(135deg, #f472b6, #f9a8d4)' },
+    { label: '개발', value: projects.filter(p => p.status === 'Development').length, color: 'var(--info-gradient)' },
+    { label: '검수', value: projects.filter(p => p.status === 'Review').length, color: 'var(--primary-gradient)' },
+    { label: '출시', value: projects.filter(p => p.status === 'Launch').length, color: 'var(--success-gradient)' },
   ];
+
+  // 검수(Review) 단계는 개발 리소스를 거의 안 쓰므로, Development 상태 프로젝트만 가용성 블로커로 취급.
+  const memberAvailability = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const rows = allMembers.map(member => {
+      const blockingProjects = projects.filter(p =>
+        BLOCKING_STATUSES.includes(p.status) &&
+        (p.members || []).some(m => String(m.id) === String(member.id))
+      );
+
+      const dated = [];
+      const undated = [];
+      blockingProjects.forEach(p => {
+        let raw;
+        if (availabilityBasis === 'development') {
+          raw = p.development_end || p.inspection_date || p.end_date;
+        } else if (availabilityBasis === 'inspection') {
+          raw = p.inspection_date || p.end_date;
+        } else {
+          // auto: 단계 정보가 있으면 개발 종료일 우선, 없으면 기존 로직
+          raw = p.development_end || p.inspection_date || p.end_date;
+        }
+        if (raw) dated.push({ project: p, date: new Date(raw) });
+        else undated.push(p);
+      });
+
+      const latest = dated.length
+        ? dated.reduce((a, b) => (a.date > b.date ? a : b))
+        : null;
+
+      const availableDate = latest ? latest.date : null;
+      const isAvailableNow = !availableDate || availableDate <= today;
+
+      return {
+        member,
+        availableDate,
+        isAvailableNow,
+        blockingProjects,
+        datedProjects: dated,
+        undatedProjects: undated,
+      };
+    });
+
+    rows.sort((a, b) => {
+      if (a.isAvailableNow && !b.isAvailableNow) return -1;
+      if (!a.isAvailableNow && b.isAvailableNow) return 1;
+      if (!a.availableDate) return -1;
+      if (!b.availableDate) return 1;
+      return a.availableDate - b.availableDate;
+    });
+
+    return rows;
+  }, [projects, allMembers, availabilityBasis]);
 
   const menuItems = [
     { id: 'dashboard', label: '대시보드', icon: LayoutDashboard, category: 'work' },
     { id: 'projects', label: '프로젝트', icon: Briefcase, category: 'work' },
     { id: 'tasks', label: '작업', icon: CheckSquare, category: 'work' },
+    { id: 'daily', label: '일일 업무', icon: NotebookPen, category: 'work' },
     { id: 'issues', label: '이슈', icon: AlertTriangle, category: 'work' },
+    { id: 'availability', label: '팀 가용성', icon: CalendarClock, category: 'work' },
     { id: 'completed', label: '완료된 프로젝트', icon: CheckCircle, category: 'work' },
     { id: 'knowledge', label: '정보 공유', icon: MessageSquare, category: 'community' },
     { id: 'team', label: '팀', icon: Users, category: 'community' },
@@ -588,7 +744,10 @@ const App = () => {
                           onClick={() => setSelectedProject(project)}
                         >
                           <div className="card-header">
-                            <span className="group-tag">{project.group_name}</span>
+                            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                              <span className="group-tag">{project.group_name}</span>
+                              <PhaseBadge project={project} />
+                            </div>
                             <div className="card-actions">
                               <button className="icon-btn xs" onClick={(e) => openEditModal(e, project)}><Settings size={14} /></button>
                               <button className="icon-btn xs delete" onClick={(e) => handleDeleteProject(e, project.id)}><Trash2 size={14} /></button>
@@ -1002,100 +1161,149 @@ const App = () => {
             </div>
           </motion.div>
         );
-      case 'completed':
-        const completedProjects = projects.filter(p => p.status === 'Launch');
+      case 'daily':
         return (
-          <motion.div 
-            className="projects-list-view"
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
+          <DailyLog members={allMembers} projects={projects} />
+        );
+      case 'availability': {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const fmt = (d) => d.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric' });
+        const daysFromToday = (d) => Math.round((d - today) / (1000 * 60 * 60 * 24));
+
+        const nowCount = memberAvailability.filter(r => r.isAvailableNow).length;
+        const busyCount = memberAvailability.length - nowCount;
+
+        return (
+          <motion.div
+            className="availability-view"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
           >
-            <div className="list-header glass">
+            <div className="list-header glass" style={{ flexWrap: 'wrap', gap: 14 }}>
               <div className="list-title-area">
-                <h2>✅ 완료된 프로젝트 목록</h2>
-                <p>총 {completedProjects.length}개의 프로젝트가 성공적으로 완료되었습니다! 🏆</p>
+                <h2>📅 팀 가용성</h2>
+                <p>
+                  오늘 기준 <b style={{ color: '#4ade80' }}>{nowCount}명</b> 즉시 투입 가능 ·
+                  <b style={{ color: '#fbbf24', marginLeft: 6 }}>{busyCount}명</b> 개발 중
+                  <span style={{ marginLeft: 8, opacity: 0.5 }}>(검수 단계는 투입 가능으로 계산)</span>
+                </p>
+              </div>
+              <div className="availability-basis-toggle">
+                <span className="sort-label">투입 가능일 기준</span>
+                <select value={availabilityBasis} onChange={(e) => setAvailabilityBasis(e.target.value)} className="sort-select">
+                  <option value="auto">🤖 자동 (개발 종료일 우선)</option>
+                  <option value="development">⚙️ 개발 종료일</option>
+                  <option value="inspection">🔍 검수 시작일</option>
+                </select>
               </div>
             </div>
 
-            <div className="projects-table-container glass">
-              <table className="projects-table">
-                <thead>
-                  <tr>
-                    <th>프로젝트 명</th>
-                    <th>그룹</th>
-                    <th>상태</th>
-                    <th>종료일</th>
-                    <th>진행률</th>
-                    <th>담당 영역</th>
-                    <th>멤버</th>
-                    <th className="text-right">관리</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {completedProjects.map((project, idx) => (
-                    <motion.tr 
-                      key={project.id}
-                      initial={{ opacity: 0, x: -10 }}
+            {memberAvailability.length === 0 ? (
+              <div className="glass" style={{ padding: 60, textAlign: 'center', borderRadius: 24, marginTop: 24, opacity: 0.6 }}>
+                등록된 멤버가 없습니다.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 20 }}>
+                {memberAvailability.map(({ member, availableDate, isAvailableNow, datedProjects, undatedProjects, blockingProjects }, idx) => {
+                  const days = availableDate ? daysFromToday(availableDate) : 0;
+                  const urgencyColor = isAvailableNow
+                    ? '#4ade80'
+                    : days <= 14 ? '#fbbf24'
+                    : days <= 30 ? '#fb923c'
+                    : '#f87171';
+
+                  return (
+                    <motion.div
+                      key={member.id}
+                      className="glass"
+                      initial={{ opacity: 0, x: -20 }}
                       animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: idx * 0.03 }}
-                      onClick={() => setSelectedProject(project)}
-                      className="clickable-row"
+                      transition={{ delay: idx * 0.04 }}
+                      style={{
+                        padding: '18px 22px',
+                        borderRadius: 20,
+                        display: 'grid',
+                        gridTemplateColumns: '56px 1fr auto',
+                        gap: 18,
+                        alignItems: 'center',
+                        borderLeft: `4px solid ${urgencyColor}`,
+                      }}
                     >
-                      <td className="col-title">
-                        <div className="project-info-cell">
-                          <CheckCircle size={14} className="cell-icon success-text" />
-                          <span>{project.title}</span>
+                      <div style={{
+                        width: 56, height: 56, borderRadius: '50%',
+                        background: 'rgba(255,255,255,0.06)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontWeight: 700, fontSize: 20, overflow: 'hidden'
+                      }}>
+                        {member.avatar
+                          ? <img src={member.avatar} alt={member.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          : member.name[0]}
+                      </div>
+
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 6 }}>
+                          <span style={{ fontSize: 17, fontWeight: 700 }}>{member.name}</span>
+                          <span style={{ fontSize: 13, opacity: 0.5 }}>{member.role}</span>
                         </div>
-                      </td>
-                      <td><span className="group-tag small">{project.group_name}</span></td>
-                      <td><div className={`badge badge-${project.status.toLowerCase()} small`}>{statusMap[project.status]}</div></td>
-                      <td><span className="date-cell">{project.end_date ? new Date(project.end_date).toLocaleDateString() : '-'}</span></td>
-                      <td className="col-progress">
-                        <div className="progress-cell">
-                          <span className="progress-text">{project.progress}%</span>
-                          <div className="progress-bar-bg mini">
-                            <div 
-                              className={`progress-bar-fill fill-${project.status.toLowerCase()}`}
-                              style={{ width: `${project.progress}%` }}
-                            />
-                          </div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                          {blockingProjects.length === 0 ? (
+                            <span style={{ fontSize: 13, opacity: 0.45 }}>진행 중인 개발 과업 없음</span>
+                          ) : (
+                            <>
+                              {datedProjects.map(({ project, date }) => (
+                                <span key={project.id} style={{
+                                  fontSize: 12, padding: '4px 10px', borderRadius: 999,
+                                  background: 'rgba(255,255,255,0.05)',
+                                  border: '1px solid rgba(255,255,255,0.08)'
+                                }}>
+                                  {project.title} <span style={{ opacity: 0.5 }}>· {fmt(date)}</span>
+                                </span>
+                              ))}
+                              {undatedProjects.map(p => (
+                                <span key={p.id} style={{
+                                  fontSize: 12, padding: '4px 10px', borderRadius: 999,
+                                  background: 'rgba(248, 113, 113, 0.08)',
+                                  border: '1px solid rgba(248, 113, 113, 0.25)',
+                                  color: '#fca5a5'
+                                }}>
+                                  {p.title} <span style={{ opacity: 0.6 }}>· 일정 미정</span>
+                                </span>
+                              ))}
+                            </>
+                          )}
                         </div>
-                      </td>
-                      <td><span className="area-label">{project.area}</span></td>
-                      <td className="members-cell">
-                        <div className="member-avatars">
-                          {project.members && project.members.slice(0, 3).map(m => (
-                            <div 
-                              key={m.id} 
-                              className="member-avatar mini cursor-pointer" 
-                              title={`${m.name} (${m.role})`}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleMemberClick(m.id);
-                              }}
-                            >
-                              {m.avatar ? <img src={m.avatar} alt={m.name} /> : m.name[0]}
-                            </div>
-                          ))}
+                      </div>
+
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: urgencyColor, lineHeight: 1.1 }}>
+                          {isAvailableNow
+                            ? '지금 가능'
+                            : availableDate ? fmt(availableDate) : '—'}
                         </div>
-                      </td>
-                      <td className="actions-cell">
-                        <div className="row-actions">
-                          <button className="icon-btn small" onClick={(e) => openEditModal(e, project)}><Settings size={14} /></button>
-                          <button className="icon-btn small delete" onClick={(e) => handleDeleteProject(e, project.id)}><Trash2 size={14} /></button>
+                        <div style={{ fontSize: 12, opacity: 0.55, marginTop: 4 }}>
+                          {isAvailableNow
+                            ? (blockingProjects.length === 0 ? '대기 중' : '검수 단계')
+                            : `${days}일 후`}
                         </div>
-                      </td>
-                    </motion.tr>
-                  ))}
-                  {completedProjects.length === 0 && (
-                    <tr>
-                      <td colSpan="8" className="empty-row">아직 완료된 프로젝트가 없습니다.</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </div>
+            )}
           </motion.div>
+        );
+      }
+      case 'completed':
+        return (
+          <CompletedProjects
+            projects={projects}
+            onProjectClick={(p) => setSelectedProject(p)}
+            onEdit={(e, p) => openEditModal(e, p)}
+            onDelete={(e, id) => handleDeleteProject(e, id)}
+            onMemberClick={handleMemberClick}
+          />
         );
       default:
         return null;
@@ -1299,7 +1507,7 @@ const App = () => {
                   </div>
                 </div>
 
-                <motion.div 
+                <motion.div
                   className="detail-item progress-section"
                   initial={{ opacity: 0, x: 20 }}
                   animate={{ opacity: 1, x: 0 }}
@@ -1312,7 +1520,7 @@ const App = () => {
                       <span className="progress-value">{selectedProject.progress}%</span>
                     </div>
                     <div className="progress-bar-bg larger">
-                      <motion.div 
+                      <motion.div
                         className={`progress-bar-fill fill-${selectedProject.status.toLowerCase()}`}
                         initial={{ width: 0 }}
                         animate={{ width: `${selectedProject.progress}%` }}
@@ -1320,6 +1528,17 @@ const App = () => {
                       ></motion.div>
                     </div>
                   </div>
+                </motion.div>
+
+                {/* 단계별 타임라인 */}
+                <motion.div
+                  className="detail-item"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.4 }}
+                >
+                  <h3><Calendar size={16} /> 단계별 일정</h3>
+                  <PhaseTimeline project={selectedProject} />
                 </motion.div>
               </div>
 
@@ -1397,9 +1616,11 @@ const App = () => {
                       className="glass-input select-premium"
                     >
                       <option value="Pending">🛡️ 대기</option>
-                      <option value="Development">🚀 진행</option>
-                      <option value="Review">🔍 검수 중</option>
-                      <option value="Launch">🏁 완료</option>
+                      <option value="Planning">📋 기획</option>
+                      <option value="Design">🎨 디자인</option>
+                      <option value="Development">⚙️ 개발</option>
+                      <option value="Review">🔍 검수</option>
+                      <option value="Launch">🏁 출시</option>
                     </select>
                   </div>
                   <div className="form-field">
@@ -1427,19 +1648,56 @@ const App = () => {
                   </div>
                   <div className="form-field">
                     <label><Calendar size={14} /> 프로젝트 종료일</label>
-                    <input 
-                      type="date" 
+                    <input
+                      type="date"
                       value={projectForm.end_date}
                       onChange={(e) => setProjectForm({...projectForm, end_date: e.target.value})}
                       className="glass-input"
                     />
                   </div>
                 </div>
+
+                {/* 단계별 일정 */}
+                <div className="phase-schedule-section">
+                  <div className="phase-schedule-title">
+                    <Calendar size={16} /> 단계별 일정
+                    <span className="phase-schedule-hint">각 단계의 시작/마감일을 설정하세요 (선택)</span>
+                  </div>
+                  <div className="phase-schedule-grid">
+                    {[
+                      { key: 'planning', label: '📋 기획', color: '#a78bfa' },
+                      { key: 'design', label: '🎨 디자인', color: '#f472b6' },
+                      { key: 'development', label: '⚙️ 개발', color: '#60a5fa' },
+                      { key: 'test', label: '🧪 테스트', color: '#4ade80' },
+                    ].map(phase => (
+                      <div key={phase.key} className="phase-row" style={{ borderLeft: `3px solid ${phase.color}` }}>
+                        <div className="phase-row-label">{phase.label}</div>
+                        <div className="phase-row-dates">
+                          <input
+                            type="date"
+                            value={projectForm[`${phase.key}_start`] || ''}
+                            onChange={(e) => setProjectForm({ ...projectForm, [`${phase.key}_start`]: e.target.value })}
+                            className="glass-input dark-calendar"
+                            placeholder="시작"
+                          />
+                          <span className="phase-row-sep">~</span>
+                          <input
+                            type="date"
+                            value={projectForm[`${phase.key}_end`] || ''}
+                            onChange={(e) => setProjectForm({ ...projectForm, [`${phase.key}_end`]: e.target.value })}
+                            className="glass-input dark-calendar"
+                            placeholder="마감"
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
 
               <div className="modal-footer">
-                <button 
-                  className="action-btn primary" 
+                <button
+                  className="action-btn primary"
                   onClick={handleSaveProject}
                   disabled={isSubmitting}
                 >

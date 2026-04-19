@@ -2,19 +2,22 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { toast } from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  Plus, 
-  MoreVertical, 
-  Clock, 
-  AlertCircle, 
-  CheckCircle, 
+import {
+  Plus,
+  MoreVertical,
+  Clock,
+  AlertCircle,
+  CheckCircle,
   Circle,
   User,
   Hash,
   Filter,
   Trash2,
   AlertTriangle,
-  UserPlus
+  UserPlus,
+  Search,
+  X,
+  Flame
 } from 'lucide-react';
 
 const statuses = ['To Do', 'In Progress', 'Review', 'Done'];
@@ -37,6 +40,20 @@ const priorityIcons = {
   'Low': <Circle size={14} className="text-blue" />
 };
 
+const getDueUrgency = (dateStr) => {
+  if (!dateStr) return null;
+  const due = new Date(dateStr);
+  due.setHours(0, 0, 0, 0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const days = Math.round((due - today) / 86400000);
+  if (days < 0) return { kind: 'overdue', days: -days, label: `${-days}일 지남`, color: '#f87171', bg: 'rgba(248,113,113,0.14)', border: 'rgba(248,113,113,0.35)' };
+  if (days === 0) return { kind: 'today', days: 0, label: '오늘 마감', color: '#fb923c', bg: 'rgba(251,146,60,0.18)', border: 'rgba(251,146,60,0.4)' };
+  if (days <= 3) return { kind: 'urgent', days, label: `D-${days}`, color: '#fb923c', bg: 'rgba(251,146,60,0.1)', border: 'rgba(251,146,60,0.25)' };
+  if (days <= 7) return { kind: 'soon', days, label: `D-${days}`, color: '#fbbf24', bg: 'rgba(251,191,36,0.08)', border: 'rgba(251,191,36,0.2)' };
+  return { kind: 'normal', days, label: `D-${days}`, color: 'rgba(255,255,255,0.65)', bg: 'rgba(255,255,255,0.03)', border: 'rgba(255,255,255,0.06)' };
+};
+
 const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onProjectUpdate, onQuickAssign }) => {
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -44,7 +61,12 @@ const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onPro
   const [selectedProject, setSelectedProject] = useState('All');
   const [viewMode, setViewMode] = useState('swimlane'); // 'board' or 'swimlane'
   const [hoveredMemberId, setHoveredMemberId] = useState(null); // For Drag & Drop
+  const [hoveredStatus, setHoveredStatus] = useState(null);     // For drag-to-column status change
   const [isDragging, setIsDragging] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState('created_desc');
+  const [progressEditingId, setProgressEditingId] = useState(null);
+  const [progressDraft, setProgressDraft] = useState(0);
   
   // Update local selector if prop changes
   useEffect(() => {
@@ -112,26 +134,63 @@ const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onPro
 
   const handleTaskDragEnd = async (task, info) => {
     setIsDragging(false);
-    
-    if (hoveredMemberId) {
-      const newAssigneeIds = hoveredMemberId === 'Unassigned' ? [] : [parseInt(hoveredMemberId)];
-      
-      setTasks(prev => prev.map(t => 
-        t.id === task.id ? { ...t, assignee_ids: newAssigneeIds } : t
-      ));
+    const capturedStatus = hoveredStatus;
+    const capturedMember = hoveredMemberId;
+    setHoveredStatus(null);
+    setHoveredMemberId(null);
 
-      try {
+    const statusChanged = capturedStatus && capturedStatus !== task.status;
+    const assigneeChanged = !!capturedMember;
+
+    if (!statusChanged && !assigneeChanged) return;
+
+    // Optimistic update
+    setTasks(prev => prev.map(t => {
+      if (t.id !== task.id) return t;
+      const next = { ...t };
+      if (statusChanged) next.status = capturedStatus;
+      if (assigneeChanged) {
+        next.assignees = capturedMember === 'Unassigned'
+          ? []
+          : (members.filter(m => String(m.id) === String(capturedMember)));
+      }
+      return next;
+    }));
+
+    try {
+      if (statusChanged) {
+        const { error } = await supabase.from('tasks').update({ status: capturedStatus }).eq('id', task.id);
+        if (error) throw error;
+      }
+      if (assigneeChanged) {
+        const newAssigneeIds = capturedMember === 'Unassigned' ? [] : [parseInt(capturedMember)];
         await supabase.from('task_assignees').delete().eq('task_id', task.id);
         if (newAssigneeIds.length > 0) {
           await supabase.from('task_assignees').insert(newAssigneeIds.map(id => ({ member_id: id, task_id: task.id })));
         }
-        toast.success(newAssigneeIds.length > 0 ? '배정 완료! ✨' : '배정 해제! 얍!');
-        fetchTasks();
-      } catch (error) {
-        toast.error('배정 중 오류가 발생했어요. 😢');
-        fetchTasks();
       }
+      const msgs = [];
+      if (statusChanged) msgs.push(`→ ${statusLabels[capturedStatus]}`);
+      if (assigneeChanged) msgs.push(capturedMember === 'Unassigned' ? '배정 해제' : '배정 변경');
+      toast.success(msgs.join(' · '));
+      fetchTasks();
+    } catch (error) {
+      toast.error('변경 중 오류가 발생했어요.');
+      fetchTasks();
     }
+  };
+
+  const handleQuickUpdatePriority = async (taskId, newPriority) => {
+    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, priority: newPriority } : t));
+    const { error } = await supabase.from('tasks').update({ priority: newPriority }).eq('id', taskId);
+    if (error) { toast.error('우선순위 변경 오류'); fetchTasks(); }
+  };
+
+  const handleQuickUpdateProgress = async (taskId, newProgress) => {
+    const clamped = Math.max(0, Math.min(100, newProgress));
+    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, progress: clamped } : t));
+    const { error } = await supabase.from('tasks').update({ progress: clamped }).eq('id', taskId);
+    if (error) { toast.error('진도 변경 오류'); fetchTasks(); }
   };
 
   const openCreateModal = (initialStatus = 'To Do') => {
@@ -234,122 +293,249 @@ const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onPro
     }
   };
 
-  const filteredTasks = tasks.filter(t => {
+  const q = searchQuery.trim().toLowerCase();
+
+  const sortTasks = (arr) => {
+    const list = [...arr];
+    switch (sortBy) {
+      case 'due_asc':
+        return list.sort((a, b) => {
+          if (!a.due_date && !b.due_date) return 0;
+          if (!a.due_date) return 1;
+          if (!b.due_date) return -1;
+          return new Date(a.due_date) - new Date(b.due_date);
+        });
+      case 'priority_desc': {
+        const order = { High: 0, Medium: 1, Low: 2 };
+        return list.sort((a, b) => (order[a.priority] ?? 99) - (order[b.priority] ?? 99));
+      }
+      case 'created_asc':
+        return list.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+      case 'created_desc':
+      default:
+        return list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    }
+  };
+
+  const filteredTasks = sortTasks(tasks.filter(t => {
     const memberMatch = selectedMember === 'All' || (Array.isArray(t.assignees) && t.assignees.some(m => String(m.id) === String(selectedMember)));
     const projectMatch = selectedProject === 'All' || String(t.project_id) === String(selectedProject);
-    return memberMatch && projectMatch;
-  });
+    const searchMatch = !q ||
+      (t.content && t.content.toLowerCase().includes(q)) ||
+      (t.project?.title && t.project.title.toLowerCase().includes(q)) ||
+      (Array.isArray(t.assignees) && t.assignees.some(a => a.name && a.name.toLowerCase().includes(q)));
+    return memberMatch && projectMatch && searchMatch;
+  }));
 
   const membersWithTasks = members.map(m => {
-    const memberTasks = tasks.filter(t => {
+    const memberTasks = sortTasks(tasks.filter(t => {
       const assignedToMe = Array.isArray(t.assignees) && t.assignees.some(assignee => String(assignee.id) === String(m.id));
       const projectMatch = selectedProject === 'All' || String(t.project_id) === String(selectedProject);
-      return assignedToMe && projectMatch;
-    });
-    
-    const memberProgress = memberTasks.length > 0 
-      ? Math.round(memberTasks.reduce((acc, t) => acc + (t.progress || 0), 0) / memberTasks.length) 
+      const searchMatch = !q ||
+        (t.content && t.content.toLowerCase().includes(q)) ||
+        (t.project?.title && t.project.title.toLowerCase().includes(q));
+      return assignedToMe && projectMatch && searchMatch;
+    }));
+
+    const memberProgress = memberTasks.length > 0
+      ? Math.round(memberTasks.reduce((acc, t) => acc + (t.progress || 0), 0) / memberTasks.length)
       : 0;
+
+    const statusCounts = {
+      'To Do': 0,
+      'In Progress': 0,
+      'Review': 0,
+      'Done': 0,
+    };
+    let overdueCount = 0;
+    memberTasks.forEach(t => {
+      if (statusCounts[t.status] !== undefined) statusCounts[t.status]++;
+      if (t.status !== 'Done' && getDueUrgency(t.due_date)?.kind === 'overdue') overdueCount++;
+    });
 
     return {
       ...m,
       tasks: memberTasks,
-      memberProgress
+      memberProgress,
+      statusCounts,
+      overdueCount,
     };
   }).filter(m => selectedMember === 'All' || String(m.id) === String(selectedMember));
 
-  const unassignedTasks = tasks.filter(t => {
+  const unassignedTasks = sortTasks(tasks.filter(t => {
     const noAssignee = !Array.isArray(t.assignees) || t.assignees.length === 0;
     const projectMatch = selectedProject === 'All' || String(t.project_id) === String(selectedProject);
-    return noAssignee && projectMatch;
-  });
+    const searchMatch = !q ||
+      (t.content && t.content.toLowerCase().includes(q)) ||
+      (t.project?.title && t.project.title.toLowerCase().includes(q));
+    return noAssignee && projectMatch && searchMatch;
+  }));
 
-  const renderTaskCard = (task) => (
-    <motion.div
-      key={task.id}
-      layout
-      drag
-      dragConstraints={{ left: 0, right: 0, top: 0, bottom: 0 }}
-      dragElastic={0.1}
-      onDragStart={() => setIsDragging(true)}
-      onDragEnd={(e, info) => handleTaskDragEnd(task, info)}
-      whileDrag={{ 
-        scale: 1.05, 
-        zIndex: 1000, 
-        backgroundColor: 'rgba(99, 102, 241, 0.1)',
-        boxShadow: '0 20px 40px rgba(0,0,0,0.3)'
-      }}
-      className="task-card glass card-glow group"
-      onClick={() => !isDragging && openEditModal(task)}
-    >
-      <div className="task-card-header">
-        <span className={`priority-tag ${task.priority.toLowerCase()}`}>
-          {priorityIcons[task.priority]} {task.priority}
-        </span>
-        <div className="card-actions-overlay opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
-          {(!Array.isArray(task.assignees) || task.assignees.length === 0) && (
-            <button 
-              className="icon-btn xs assign" 
-              onClick={(e) => { e.stopPropagation(); openAssigneeModal(task); }}
-              title="담당자 배정"
+  const renderTaskCard = (task) => {
+    const urgency = getDueUrgency(task.due_date);
+    const isProgressEditing = progressEditingId === task.id;
+    const isUnassigned = !Array.isArray(task.assignees) || task.assignees.length === 0;
+
+    return (
+      <motion.div
+        key={task.id}
+        layout
+        drag
+        dragConstraints={{ left: 0, right: 0, top: 0, bottom: 0 }}
+        dragElastic={0.1}
+        onDragStart={() => setIsDragging(true)}
+        onDragEnd={(e, info) => handleTaskDragEnd(task, info)}
+        whileDrag={{
+          scale: 1.05,
+          zIndex: 1000,
+          backgroundColor: 'rgba(99, 102, 241, 0.1)',
+          boxShadow: '0 20px 40px rgba(0,0,0,0.3)'
+        }}
+        className={`task-card glass card-glow group ${isUnassigned ? 'task-unassigned' : ''} ${urgency?.kind === 'overdue' ? 'task-overdue' : ''}`}
+        onClick={() => !isDragging && openEditModal(task)}
+      >
+        <div className="task-card-header">
+          {/* 우선순위 인라인 셀렉트 */}
+          <div className="priority-select-wrap" onClick={(e) => e.stopPropagation()}>
+            <select
+              className={`priority-tag priority-select ${task.priority.toLowerCase()}`}
+              value={task.priority}
+              onChange={(e) => handleQuickUpdatePriority(task.id, e.target.value)}
+              title="우선순위 변경"
             >
-              <UserPlus size={14} />
-            </button>
-          )}
-          <button 
-            className="icon-btn xs delete" 
-            onClick={(e) => { e.stopPropagation(); confirmDeleteTask(task); }}
-            title="삭제"
-          >
-            <Trash2 size={14} />
-          </button>
-        </div>
-      </div>
-      <h4 className="task-card-title">{task.content}</h4>
-      <div className="task-card-footer-container flex flex-col mt-auto">
-        <div className="task-card-footer">
-          <div className="task-project">
-            <Hash size={12} /> {task.project?.title || 'Unknown'}
+              <option value="High">🔴 High</option>
+              <option value="Medium">🟡 Medium</option>
+              <option value="Low">🔵 Low</option>
+            </select>
           </div>
-          <div className="task-assignees-avatars">
-            {Array.isArray(task.assignees) && task.assignees.length > 0 ? (
-              task.assignees.map(m => (
-                <div key={m.id} className="mini-avatar" title={m.name}>
-                  {m.avatar ? <img src={m.avatar} alt={m.name} /> : m.name[0]}
+
+          <div className="card-actions-overlay opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+            {isUnassigned && (
+              <button
+                className="icon-btn xs assign"
+                onClick={(e) => { e.stopPropagation(); openAssigneeModal(task); }}
+                title="담당자 배정"
+              >
+                <UserPlus size={14} />
+              </button>
+            )}
+            <button
+              className="icon-btn xs delete"
+              onClick={(e) => { e.stopPropagation(); confirmDeleteTask(task); }}
+              title="삭제"
+            >
+              <Trash2 size={14} />
+            </button>
+          </div>
+        </div>
+
+        <h4 className="task-card-title">{task.content}</h4>
+
+        <div className="task-card-footer-container flex flex-col mt-auto">
+          <div className="task-card-footer">
+            <div className="task-project">
+              <Hash size={12} /> {task.project?.title || 'Unknown'}
+            </div>
+            <div className="task-assignees-avatars">
+              {isUnassigned ? (
+                <div
+                  className="no-assignee-v2"
+                  title="담당자 없음 — 클릭해서 배정"
+                  onClick={(e) => { e.stopPropagation(); openAssigneeModal(task); }}
+                  style={{ cursor: 'pointer' }}
+                >
+                  <User size={12} className="opacity-40" />
                 </div>
-              ))
-            ) : (
-              <div className="no-assignee-v2" title="담당자 없음">
-                <User size={12} className="opacity-40" />
+              ) : (
+                task.assignees.map(m => (
+                  <div key={m.id} className="mini-avatar" title={m.name}>
+                    {m.avatar ? <img src={m.avatar} alt={m.name} /> : m.name[0]}
+                  </div>
+                ))
+              )}
+            </div>
+            {task.due_date && urgency && (
+              <div
+                className="task-due-badge"
+                style={{
+                  color: urgency.color,
+                  background: urgency.bg,
+                  border: `1px solid ${urgency.border}`,
+                  fontWeight: urgency.kind === 'normal' ? 500 : 700,
+                }}
+                title={new Date(task.due_date).toLocaleDateString('ko-KR')}
+              >
+                {urgency.kind === 'overdue' ? <Flame size={11} /> : <Clock size={11} />}
+                {urgency.label}
               </div>
             )}
           </div>
-          {task.due_date && (
-            <div className="task-due text-xs opacity-70 flex items-center gap-1">
-              <Clock size={12} /> {new Date(task.due_date).toLocaleDateString()}
+
+          {/* 진도율 - 클릭으로 인라인 편집 */}
+          <div
+            className="task-card-progress-wrapper mt-3 pt-2 border-t border-white/5"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!isProgressEditing) {
+                setProgressDraft(task.progress || 0);
+                setProgressEditingId(task.id);
+              }
+            }}
+            style={{ cursor: isProgressEditing ? 'default' : 'pointer' }}
+          >
+            <div className="flex justify-between text-[10px] opacity-60 mb-1.5 font-medium">
+              <span>진도율</span>
+              <span>{isProgressEditing ? progressDraft : (task.progress || 0)}%</span>
             </div>
-          )}
-        </div>
-        
-        {/* Task Progress Bar */}
-        <div className="task-card-progress-wrapper mt-3 pt-2 border-t border-white/5">
-          <div className="flex justify-between text-[10px] opacity-60 mb-1.5 font-medium">
-            <span>진도율</span>
-            <span>{task.progress || 0}%</span>
+
+            {isProgressEditing ? (
+              <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="5"
+                  value={progressDraft}
+                  onChange={(e) => setProgressDraft(parseInt(e.target.value))}
+                  style={{ flex: 1, accentColor: '#6366f1' }}
+                  autoFocus
+                />
+                <button
+                  className="icon-btn xs"
+                  onClick={async () => {
+                    await handleQuickUpdateProgress(task.id, progressDraft);
+                    setProgressEditingId(null);
+                  }}
+                  title="저장"
+                  style={{ color: '#4ade80' }}
+                >
+                  <CheckCircle size={14} />
+                </button>
+                <button
+                  className="icon-btn xs"
+                  onClick={() => setProgressEditingId(null)}
+                  title="취소"
+                  style={{ color: 'rgba(255,255,255,0.5)' }}
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            ) : (
+              <div className="task-progress-track bg-white/5 rounded-full h-1.5 overflow-hidden">
+                <div
+                  className="task-progress-fill h-full rounded-full transition-all duration-500 ease-out"
+                  style={{
+                    width: `${task.progress || 0}%`,
+                    background: (task.progress || 0) >= 100 ? 'var(--success-gradient)' : 'var(--info-gradient)'
+                  }}
+                />
+              </div>
+            )}
           </div>
-          <div className="task-progress-track bg-white/5 rounded-full h-1.5 overflow-hidden">
-            <div 
-              className="task-progress-fill h-full rounded-full transition-all duration-500 ease-out" 
-              style={{ 
-                width: `${task.progress || 0}%`,
-                background: (task.progress || 0) >= 100 ? 'var(--success-gradient)' : 'var(--info-gradient)'
-              }}
-            />
-          </div>
         </div>
-      </div>
-    </motion.div>
-  );
+      </motion.div>
+    );
+  };
 
   return (
     <div className="task-board-container">
@@ -369,6 +555,33 @@ const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onPro
             </div>
           </div>
           <div className="board-header-right">
+            {/* 검색창 */}
+            <div className="taskboard-search">
+              <Search size={14} style={{ opacity: 0.6 }} />
+              <input
+                type="text"
+                placeholder="작업 · 프로젝트 · 담당자 검색..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+              {searchQuery && (
+                <button className="taskboard-search-clear" onClick={() => setSearchQuery('')} title="지우기">
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+
+            {/* 정렬 */}
+            <div className="taskboard-sort">
+              <span className="sort-label">정렬</span>
+              <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="sort-select">
+                <option value="created_desc">🆕 최신 등록순</option>
+                <option value="created_asc">🕰️ 오래된 순</option>
+                <option value="due_asc">⏰ 마감 임박순</option>
+                <option value="priority_desc">🔥 우선순위 높은 순</option>
+              </select>
+            </div>
+
             <div className="member-filters">
               <span className="filter-label"><Filter size={16} /> 담당자:</span>
               <div 
@@ -425,15 +638,30 @@ const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onPro
       <div className="board-content custom-scrollbar">
         {viewMode === 'board' ? (
           <div className="kanban-grid">
-            {statuses.map(status => (
-              <div key={status} className="kanban-column glass">
+            {statuses.map(status => {
+              const tasksInStatus = filteredTasks.filter(t => t.status === status);
+              const unassignedInStatus = tasksInStatus.filter(t => !Array.isArray(t.assignees) || t.assignees.length === 0).length;
+              return (
+              <div
+                key={status}
+                className={`kanban-column glass ${isDragging && hoveredStatus === status ? 'drop-active-status' : ''}`}
+                onMouseEnter={() => isDragging && setHoveredStatus(status)}
+                onMouseLeave={() => setHoveredStatus(prev => prev === status ? null : prev)}
+              >
                 <div className="column-header">
                   <h3 style={{ color: statusColors[status].includes('var') ? statusColors[status] : undefined }}>
                     {statusLabels[status]}
                   </h3>
-                  <span className="task-count">
-                    {filteredTasks.filter(t => t.status === status).length}
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    {unassignedInStatus > 0 && status !== 'Done' && (
+                      <span className="column-unassigned-badge" title={`미배정 ${unassignedInStatus}개`}>
+                        미배정 {unassignedInStatus}
+                      </span>
+                    )}
+                    <span className="task-count">
+                      {tasksInStatus.length}
+                    </span>
+                  </div>
                 </div>
                 <div className="column-tasks">
                   {selectedProject === 'All' ? (
@@ -470,7 +698,7 @@ const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onPro
                   <button className="add-task-inline" onClick={() => openCreateModal(status)}><Plus size={16} /> 작업 추가</button>
                 </div>
               </div>
-            ))}
+            );})}
           </div>
         ) : (
           <div className="swimlane-container">
@@ -488,7 +716,12 @@ const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onPro
                 </div>
                 <div className="kanban-grid row-grid">
                   {statuses.map(status => (
-                    <div key={status} className="kanban-column-compact">
+                    <div
+                      key={status}
+                      className={`kanban-column-compact ${isDragging && hoveredStatus === status ? 'drop-active-status' : ''}`}
+                      onMouseEnter={() => isDragging && setHoveredStatus(status)}
+                      onMouseLeave={() => setHoveredStatus(prev => prev === status ? null : prev)}
+                    >
                       {unassignedTasks.filter(t => t.status === status).map(renderTaskCard)}
                       <button className="add-task-inline mini" onClick={() => openCreateModal(status)} title="작업 추가"><Plus size={14} /></button>
                     </div>
@@ -512,6 +745,35 @@ const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onPro
                     <div className="member-details">
                       <span className="name">{member.name}</span>
                       <span className="role">{member.role}</span>
+                    </div>
+
+                    {/* 멤버별 상태 집계 */}
+                    <div className="member-status-counts">
+                      {member.statusCounts['In Progress'] > 0 && (
+                        <span className="status-count-chip in-progress" title="진행 중">
+                          <span className="dot" /> 진행 {member.statusCounts['In Progress']}
+                        </span>
+                      )}
+                      {member.statusCounts['To Do'] > 0 && (
+                        <span className="status-count-chip todo" title="대기">
+                          <span className="dot" /> 대기 {member.statusCounts['To Do']}
+                        </span>
+                      )}
+                      {member.statusCounts['Review'] > 0 && (
+                        <span className="status-count-chip review" title="검수 중">
+                          <span className="dot" /> 검수 {member.statusCounts['Review']}
+                        </span>
+                      )}
+                      {member.statusCounts['Done'] > 0 && (
+                        <span className="status-count-chip done" title="완료">
+                          <span className="dot" /> 완료 {member.statusCounts['Done']}
+                        </span>
+                      )}
+                      {member.overdueCount > 0 && (
+                        <span className="status-count-chip overdue" title="기한 초과">
+                          <Flame size={10} /> 지연 {member.overdueCount}
+                        </span>
+                      )}
                     </div>
 
                     {/* Individual Progress Bar in Swimlane Header */}
@@ -556,7 +818,12 @@ const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onPro
                       </div>
                       <div className="kanban-grid row-grid">
                         {statuses.map(status => (
-                          <div key={status} className="kanban-column-compact">
+                          <div
+                            key={status}
+                            className={`kanban-column-compact ${isDragging && hoveredStatus === status ? 'drop-active-status' : ''}`}
+                            onMouseEnter={() => isDragging && setHoveredStatus(status)}
+                            onMouseLeave={() => setHoveredStatus(prev => prev === status ? null : prev)}
+                          >
                             <div className="mobile-column-label">{statusLabels[status]}</div>
                             {group.tasks.filter(t => t.status === status).map(renderTaskCard)}
                             <button className="add-task-inline mini" onClick={() => openCreateModal(status)} title="작업 추가"><Plus size={14} /></button>
@@ -567,7 +834,12 @@ const TaskBoard = ({ members = [], projects = [], initialMemberId = 'All', onPro
                   )) : (
                     <div className="kanban-grid row-grid">
                       {statuses.map(status => (
-                        <div key={status} className="kanban-column-compact">
+                        <div
+                          key={status}
+                          className={`kanban-column-compact ${isDragging && hoveredStatus === status ? 'drop-active-status' : ''}`}
+                          onMouseEnter={() => isDragging && setHoveredStatus(status)}
+                          onMouseLeave={() => setHoveredStatus(prev => prev === status ? null : prev)}
+                        >
                           <button className="add-task-inline mini" onClick={() => openCreateModal(status)} title="작업 추가"><Plus size={14} /></button>
                         </div>
                       ))}
