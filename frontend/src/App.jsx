@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, lazy, Suspense } from 'react';
+import { statusMap, BLOCKING_STATUSES, AVATAR_LIST, emptyProjectForm } from './lib/constants';
 import { 
   LayoutDashboard, 
   Briefcase, 
@@ -30,13 +31,18 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from './lib/supabase';
-import TaskBoard from './components/TaskBoard';
-import IssueTracker from './components/IssueTracker';
-import ShareBoard from './components/ShareBoard';
-import WritingPage from './components/WritingPage';
-import DailyLog from './components/DailyLog';
-import CompletedProjects from './components/CompletedProjects';
 import PhaseTimeline, { getProjectPhaseStatus } from './components/PhaseTimeline';
+import AvailabilityView from './views/AvailabilityView';
+import TeamView from './views/TeamView';
+import SettingsView from './views/SettingsView';
+
+// 무거운 뷰는 지연 로드 → 초기 번들 축소
+const TaskBoard = lazy(() => import('./components/TaskBoard'));
+const IssueTracker = lazy(() => import('./components/IssueTracker'));
+const ShareBoard = lazy(() => import('./components/ShareBoard'));
+const WritingPage = lazy(() => import('./components/WritingPage'));
+const DailyLog = lazy(() => import('./components/DailyLog'));
+const CompletedProjects = lazy(() => import('./components/CompletedProjects'));
 
 const PhaseBadge = ({ project, size = 'normal' }) => {
   const status = getProjectPhaseStatus(project);
@@ -109,47 +115,6 @@ const PhaseBadge = ({ project, size = 'normal' }) => {
 import { Toaster, toast } from 'react-hot-toast';
 import './App.css';
 
-const statusMap = {
-  'All': '전체',
-  'Planning': '기획',
-  'Design': '디자인',
-  'Development': '개발',
-  'Review': '검수',
-  'Launch': '출시'
-};
-
-// 멤버 가용성 블로커: 검수·출시는 제외
-const BLOCKING_STATUSES = ['Planning', 'Design', 'Development'];
-
-const AVATAR_LIST = [
-  { id: 'woman_1', path: '/avatars/woman_1.png', category: 'Female' },
-  { id: 'woman_2', path: '/avatars/woman_2.png', category: 'Female' },
-  { id: 'woman_3', path: '/avatars/woman_3.png', category: 'Female' },
-  { id: 'woman_4', path: '/avatars/woman_4.png', category: 'Female' },
-  { id: 'woman_5', path: '/avatars/woman_5.png', category: 'Female' },
-  { id: 'woman_6', path: '/avatars/woman_6.png', category: 'Female' },
-  { id: 'woman_7', path: '/avatars/woman_7.png', category: 'Female' },
-  { id: 'woman_8', path: '/avatars/woman_8.png', category: 'Female' },
-  { id: 'woman_9', path: '/avatars/woman_9.png', category: 'Female' },
-  { id: 'man_1', path: '/avatars/man_1.png', category: 'Male' },
-  { id: 'man_2', path: '/avatars/man_2.png', category: 'Male' },
-  { id: 'man_3', path: '/avatars/man_3.png', category: 'Male' },
-  { id: 'man_4', path: '/avatars/man_4.png', category: 'Male' },
-  { id: 'man_5', path: '/avatars/man_5.png', category: 'Male' },
-  { id: 'man_6', path: '/avatars/man_6.png', category: 'Male' },
-  { id: 'man_7', path: '/avatars/man_7.png', category: 'Male' },
-  { id: 'man_8', path: '/avatars/man_8.png', category: 'Male' },
-  { id: 'man_9', path: '/avatars/man_9.png', category: 'Male' },
-  { id: 'mixed_1', path: '/avatars/mixed_1.png', category: 'Premium' },
-  { id: 'mixed_2', path: '/avatars/mixed_2.png', category: 'Premium' },
-  { id: 'mixed_3', path: '/avatars/mixed_3.png', category: 'Premium' },
-  { id: 'mixed_4', path: '/avatars/mixed_4.png', category: 'Premium' },
-  { id: 'mixed_5', path: '/avatars/mixed_5.png', category: 'Premium' },
-  { id: 'mixed_6', path: '/avatars/mixed_6.png', category: 'Premium' },
-  { id: 'mixed_7', path: '/avatars/mixed_7.png', category: 'Premium' },
-  { id: 'mixed_8', path: '/avatars/mixed_8.png', category: 'Premium' },
-  { id: 'mixed_9', path: '/avatars/mixed_9.png', category: 'Premium' },
-];
 
 const App = () => {
   const [projects, setProjects] = useState([]);
@@ -170,24 +135,6 @@ const App = () => {
   const [showFormModal, setShowFormModal] = useState(false);
   const [editingProject, setEditingProject] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const emptyProjectForm = {
-    title: '',
-    group_name: '',
-    task: '',
-    status: 'Development',
-    area: '',
-    progress: 0,
-    end_date: '',
-    inspection_date: '',
-    planning_start: '',
-    planning_end: '',
-    design_start: '',
-    design_end: '',
-    development_start: '',
-    development_end: '',
-    test_start: '',
-    test_end: '',
-  };
   const [projectForm, setProjectForm] = useState(emptyProjectForm);
 
   // CRUD States (Members)
@@ -1046,255 +993,44 @@ const App = () => {
         );
       case 'team':
         return (
-          <motion.div 
-            className="team-view"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-          >
-            <div className="list-header glass">
-              <div className="list-title-area">
-                <h2>🧑‍🤝‍🧑 팀 멤버 관리</h2>
-                <p>현재 총 {allMembers.length}명의 전문가가 함께하고 있습니다.</p>
-              </div>
-              <button className="action-btn primary" onClick={openCreateMemberModal}>
-                <UserPlus size={18} /> 새 멤버 초대
-              </button>
-            </div>
-
-            <div className="member-grid">
-              {allMembers.map((member, idx) => (
-                <motion.div 
-                  key={member.id} 
-                  className="member-card glass card-glow"
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ delay: idx * 0.05 }}
-                  onClick={() => handleMemberClick(member.id)}
-                >
-                  <div className="member-card-actions">
-                    <button className="icon-btn xs" onClick={(e) => { e.stopPropagation(); openEditMemberModal(member); }}><Settings size={14} /></button>
-                    <button className="icon-btn xs delete" onClick={(e) => { e.stopPropagation(); handleDeleteMember(member); }}><Trash2 size={14} /></button>
-                  </div>
-                  <div className="member-card-header">
-                    <div className="member-avatar-giant">
-                      {member.avatar ? <img src={member.avatar} alt={member.name} /> : member.name[0]}
-                      <span className={`status-dot-large ${member.status.toLowerCase()}`}></span>
-                    </div>
-                  </div>
-                  <div className="member-card-body">
-                    <h3 className="member-name">{member.name}</h3>
-                    <p className="member-role">{member.role}</p>
-                    <div className={`status-badge-compact st-${member.status.toLowerCase()}`}>
-                      {member.status}
-                    </div>
-                  </div>
-                  <div className="member-card-footer">
-                    <div className="member-stats">
-                      <div className="m-stat">
-                        <span className="m-label">참여 프로젝트</span>
-                        <span className="m-value">{projects.filter(p => p.members?.some(m => m.id === member.id)).length}개</span>
-                      </div>
-                    </div>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-          </motion.div>
+          <TeamView
+            allMembers={allMembers}
+            projects={projects}
+            onMemberClick={handleMemberClick}
+            onEdit={openEditMemberModal}
+            onDelete={handleDeleteMember}
+            onCreate={openCreateMemberModal}
+          />
         );
       case 'settings':
         return (
-          <motion.div 
-            className="projects-list-view"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-          >
-            <div className="list-header glass">
-              <div className="list-title-area">
-                <h2>⚙️ 환경 설정</h2>
-                <p>시스템 전반의 설정을 영자와 함께 관리해보세요! ✨</p>
-              </div>
-            </div>
-
-            <div className="settings-section glass mt-6" style={{ padding: '30px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                <div>
-                  <h3 style={{ fontSize: '20px', fontWeight: 700 }}>📁 정보 공유 카테고리 관리</h3>
-                  <p style={{ fontSize: '14px', color: 'rgba(255,255,255,0.5)' }}>정보 공유 게시판에서 사용할 카테고리를 추가하거나 수정할 수 있어요.</p>
-                </div>
-                <button 
-                  className="action-btn primary" 
-                  onClick={() => {
-                    setEditingCategory(null);
-                    setCategoryForm({ name: '', label: '', color: '#6366f1' });
-                    setShowCategoryModal(true);
-                  }}
-                >
-                  <Plus size={18} /> 새 카테고리 추가
-                </button>
-              </div>
-
-              <div className="categories-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' }}>
-                {categories.map(cat => (
-                  <motion.div 
-                    key={cat.id} 
-                    className="category-card glass"
-                    whileHover={{ scale: 1.02 }}
-                    style={{ padding: '20px', position: 'relative', borderLeft: `4px solid ${cat.color || '#6366f1'}` }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                      <div>
-                        <div style={{ fontSize: '18px', fontWeight: 700 }}>{cat.label}</div>
-                        <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.4)', marginTop: '4px' }}>Key: {cat.name}</div>
-                      </div>
-                      <div className="card-actions" style={{ display: 'flex', gap: '8px' }}>
-                        <button className="icon-btn xs" onClick={() => {
-                          setEditingCategory(cat);
-                          setCategoryForm({ name: cat.name, label: cat.label, color: cat.color || '#6366f1' });
-                          setShowCategoryModal(true);
-                        }}><Settings size={14} /></button>
-                        <button className="icon-btn xs danger" onClick={() => handleDeleteCategory(cat.id)}><Trash2 size={14} /></button>
-                      </div>
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
-            </div>
-          </motion.div>
+          <SettingsView
+            categories={categories}
+            onCreate={() => {
+              setEditingCategory(null);
+              setCategoryForm({ name: '', label: '', color: '#6366f1' });
+              setShowCategoryModal(true);
+            }}
+            onEdit={(cat) => {
+              setEditingCategory(cat);
+              setCategoryForm({ name: cat.name, label: cat.label, color: cat.color || '#6366f1' });
+              setShowCategoryModal(true);
+            }}
+            onDelete={handleDeleteCategory}
+          />
         );
       case 'daily':
         return (
           <DailyLog members={allMembers} projects={projects} />
         );
-      case 'availability': {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const fmt = (d) => d.toLocaleDateString('ko-KR', { month: 'long', day: 'numeric' });
-        const daysFromToday = (d) => Math.round((d - today) / (1000 * 60 * 60 * 24));
-
-        const nowCount = memberAvailability.filter(r => r.isAvailableNow).length;
-        const busyCount = memberAvailability.length - nowCount;
-
+      case 'availability':
         return (
-          <motion.div
-            className="availability-view"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-          >
-            <div className="list-header glass" style={{ flexWrap: 'wrap', gap: 14 }}>
-              <div className="list-title-area">
-                <h2>📅 팀 가용성</h2>
-                <p>
-                  오늘 기준 <b style={{ color: '#4ade80' }}>{nowCount}명</b> 즉시 투입 가능 ·
-                  <b style={{ color: '#fbbf24', marginLeft: 6 }}>{busyCount}명</b> 개발 중
-                  <span style={{ marginLeft: 8, opacity: 0.5 }}>(검수 단계는 투입 가능으로 계산)</span>
-                </p>
-              </div>
-              <div className="availability-basis-toggle">
-                <span className="sort-label">투입 가능일 기준</span>
-                <select value={availabilityBasis} onChange={(e) => setAvailabilityBasis(e.target.value)} className="sort-select">
-                  <option value="auto">🤖 자동 (개발 종료일 우선)</option>
-                  <option value="development">⚙️ 개발 종료일</option>
-                  <option value="inspection">🔍 검수 시작일</option>
-                </select>
-              </div>
-            </div>
-
-            {memberAvailability.length === 0 ? (
-              <div className="glass" style={{ padding: 60, textAlign: 'center', borderRadius: 24, marginTop: 24, opacity: 0.6 }}>
-                등록된 멤버가 없습니다.
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 20 }}>
-                {memberAvailability.map(({ member, availableDate, isAvailableNow, datedProjects, undatedProjects, blockingProjects }, idx) => {
-                  const days = availableDate ? daysFromToday(availableDate) : 0;
-                  const urgencyColor = isAvailableNow
-                    ? '#4ade80'
-                    : days <= 14 ? '#fbbf24'
-                    : days <= 30 ? '#fb923c'
-                    : '#f87171';
-
-                  return (
-                    <motion.div
-                      key={member.id}
-                      className="glass"
-                      initial={{ opacity: 0, x: -20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: idx * 0.04 }}
-                      style={{
-                        padding: '18px 22px',
-                        borderRadius: 20,
-                        display: 'grid',
-                        gridTemplateColumns: '56px 1fr auto',
-                        gap: 18,
-                        alignItems: 'center',
-                        borderLeft: `4px solid ${urgencyColor}`,
-                      }}
-                    >
-                      <div style={{
-                        width: 56, height: 56, borderRadius: '50%',
-                        background: 'rgba(255,255,255,0.06)',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontWeight: 700, fontSize: 20, overflow: 'hidden'
-                      }}>
-                        {member.avatar
-                          ? <img src={member.avatar} alt={member.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                          : member.name[0]}
-                      </div>
-
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 6 }}>
-                          <span style={{ fontSize: 17, fontWeight: 700 }}>{member.name}</span>
-                          <span style={{ fontSize: 13, opacity: 0.5 }}>{member.role}</span>
-                        </div>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                          {blockingProjects.length === 0 ? (
-                            <span style={{ fontSize: 13, opacity: 0.45 }}>진행 중인 개발 과업 없음</span>
-                          ) : (
-                            <>
-                              {datedProjects.map(({ project, date }) => (
-                                <span key={project.id} style={{
-                                  fontSize: 12, padding: '4px 10px', borderRadius: 999,
-                                  background: 'rgba(255,255,255,0.05)',
-                                  border: '1px solid rgba(255,255,255,0.08)'
-                                }}>
-                                  {project.title} <span style={{ opacity: 0.5 }}>· {fmt(date)}</span>
-                                </span>
-                              ))}
-                              {undatedProjects.map(p => (
-                                <span key={p.id} style={{
-                                  fontSize: 12, padding: '4px 10px', borderRadius: 999,
-                                  background: 'rgba(248, 113, 113, 0.08)',
-                                  border: '1px solid rgba(248, 113, 113, 0.25)',
-                                  color: '#fca5a5'
-                                }}>
-                                  {p.title} <span style={{ opacity: 0.6 }}>· 일정 미정</span>
-                                </span>
-                              ))}
-                            </>
-                          )}
-                        </div>
-                      </div>
-
-                      <div style={{ textAlign: 'right' }}>
-                        <div style={{ fontSize: 22, fontWeight: 800, color: urgencyColor, lineHeight: 1.1 }}>
-                          {isAvailableNow
-                            ? '지금 가능'
-                            : availableDate ? fmt(availableDate) : '—'}
-                        </div>
-                        <div style={{ fontSize: 12, opacity: 0.55, marginTop: 4 }}>
-                          {isAvailableNow
-                            ? (blockingProjects.length === 0 ? '대기 중' : '검수 단계')
-                            : `${days}일 후`}
-                        </div>
-                      </div>
-                    </motion.div>
-                  );
-                })}
-              </div>
-            )}
-          </motion.div>
+          <AvailabilityView
+            memberAvailability={memberAvailability}
+            availabilityBasis={availabilityBasis}
+            onBasisChange={setAvailabilityBasis}
+          />
         );
-      }
       case 'completed':
         return (
           <CompletedProjects
@@ -1416,9 +1152,16 @@ const App = () => {
         </header>
 
         <AnimatePresence mode="wait">
-                <React.Fragment key={activeMenu}>
-                  {renderContent()}
-                </React.Fragment>
+          <React.Fragment key={activeMenu}>
+            <Suspense fallback={
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 80, gap: 12 }}>
+                <div className="loading-spinner" />
+                <span style={{ opacity: 0.5, fontSize: 13 }}>불러오는 중...</span>
+              </div>
+            }>
+              {renderContent()}
+            </Suspense>
+          </React.Fragment>
         </AnimatePresence>
       </main>
 
