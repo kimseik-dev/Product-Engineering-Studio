@@ -2,6 +2,7 @@ import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Rocket, Users, Layers, Calendar, Settings, Trash2, X } from 'lucide-react';
 import PhaseTimeline from './PhaseTimeline';
+import ProjectArtifactsChecklist from './ProjectArtifactsChecklist';
 import { statusMap } from '../lib/constants';
 
 const ProjectDetailModal = ({ project, onClose, onEdit, onDelete, onMemberClick }) => (
@@ -119,6 +120,15 @@ const ProjectDetailModal = ({ project, onClose, onEdit, onDelete, onMemberClick 
             >
               <h3><Calendar size={16} /> 단계별 일정</h3>
               <PhaseTimeline project={project} />
+            </motion.div>
+
+            <motion.div
+              className="detail-item"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.5 }}
+            >
+              <ProjectArtifactsChecklist projectId={project.id} />
             </motion.div>
           </div>
 

@@ -4,10 +4,11 @@ export const statusMap = {
   'Design': '디자인',
   'Development': '개발',
   'Review': '검수',
+  'LaunchRequested': '출시신청',
   'Launch': '출시'
 };
 
-// 멤버 가용성 블로커: 검수·출시는 제외 (리소스 많이 안 씀)
+// 멤버 가용성 블로커: 검수·출시신청·출시는 제외 (개발 리소스 많이 안 씀)
 export const BLOCKING_STATUSES = ['Planning', 'Design', 'Development'];
 
 export const AVATAR_LIST = [

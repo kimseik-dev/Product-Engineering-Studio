@@ -266,24 +266,27 @@ const App = () => {
       setLoading(true);
       setErrorStatus(null);
       
-      const [projRes, memRes, relRes, issueRes] = await Promise.all([
+      const [projRes, memRes, relRes, issueRes, artifactRes] = await Promise.all([
         supabase.from('projects').select('*').order('id', { ascending: true }),
         supabase.from('members').select('*'),
         supabase.from('project_members').select('*'),
-        supabase.from('issues').select('*')
+        supabase.from('issues').select('*'),
+        supabase.from('project_artifacts').select('project_id, status'),
       ]);
 
       if (projRes.error) throw projRes.error;
       if (memRes.error) throw memRes.error;
-      // Handle project_members 404/error gracefully to prevent UI freeze
       if (relRes.error) {
         console.warn('Project members relation fetch failed:', relRes.error.message);
       }
       if (issueRes.error) throw issueRes.error;
+      if (artifactRes.error) {
+        console.warn('Artifacts fetch failed:', artifactRes.error.message);
+      }
 
-      // Global members state for Team view
       setAllMembers(memRes.data);
 
+      const artifacts = artifactRes.data || [];
       const combinedData = projRes.data.map(project => {
         const associatedMemberIds = relRes.data
           .filter(rel => String(rel.project_id) === String(project.id))
@@ -291,11 +294,16 @@ const App = () => {
 
         const projMembers = memRes.data.filter(m => associatedMemberIds.includes(String(m.id)));
         const projIssues = issueRes.data.filter(i => String(i.project_id) === String(project.id));
-        
-        return { 
-          ...project, 
+        const projArtifacts = artifacts.filter(a => String(a.project_id) === String(project.id));
+
+        return {
+          ...project,
           members: projMembers,
-          issues: projIssues
+          issues: projIssues,
+          artifactStats: {
+            total: projArtifacts.length,
+            done: projArtifacts.filter(a => a.status === 'done').length,
+          },
         };
       });
       
@@ -536,6 +544,7 @@ const App = () => {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'members' }, () => fetchProjects())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'project_members' }, () => fetchProjects())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'issues' }, () => fetchProjects())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'project_artifacts' }, () => fetchProjects())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'post_categories' }, () => fetchCategories())
       .subscribe();
 
@@ -556,6 +565,7 @@ const App = () => {
     { label: '디자인', value: projects.filter(p => p.status === 'Design').length, color: 'linear-gradient(135deg, #f472b6, #f9a8d4)' },
     { label: '개발', value: projects.filter(p => p.status === 'Development').length, color: 'var(--info-gradient)' },
     { label: '검수', value: projects.filter(p => p.status === 'Review').length, color: 'var(--primary-gradient)' },
+    { label: '출시신청', value: projects.filter(p => p.status === 'LaunchRequested').length, color: 'linear-gradient(135deg, #22d3ee, #67e8f9)' },
     { label: '출시', value: projects.filter(p => p.status === 'Launch').length, color: 'var(--success-gradient)' },
   ];
 

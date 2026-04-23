@@ -78,6 +78,7 @@ const ProjectFormModal = ({ show, editing, form, setForm, isSubmitting, onSave, 
                   <option value="Design">🎨 디자인</option>
                   <option value="Development">⚙️ 개발</option>
                   <option value="Review">🔍 검수</option>
+                  <option value="LaunchRequested">📮 출시신청</option>
                   <option value="Launch">🏁 출시</option>
                 </select>
               </div>

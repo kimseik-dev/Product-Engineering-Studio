@@ -2,7 +2,7 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import {
   Eye, EyeOff, Users, AlertTriangle, Layers, Search,
-  Calendar, Settings, Trash2, Rocket, CheckCircle
+  Calendar, Settings, Trash2, Rocket, CheckCircle, Paperclip
 } from 'lucide-react';
 import { statusMap } from '../lib/constants';
 
@@ -119,6 +119,17 @@ const DashboardView = ({
                   )}
                   {project.end_date && (
                     <div className="meta-item" title="종료일"><Calendar size={14} /> {new Date(project.end_date).toLocaleDateString()}</div>
+                  )}
+                  {project.artifactStats && project.artifactStats.total > 0 && (
+                    <div
+                      className="meta-item"
+                      title={`산출물 ${project.artifactStats.done}/${project.artifactStats.total} 완료`}
+                      style={{
+                        color: project.artifactStats.done === project.artifactStats.total ? '#86efac' : 'rgba(255,255,255,0.6)',
+                      }}
+                    >
+                      <Paperclip size={13} /> {project.artifactStats.done}/{project.artifactStats.total}
+                    </div>
                   )}
                   <div className={`badge badge-${project.status.toLowerCase()}`}>{statusMap[project.status]}</div>
                 </div>
