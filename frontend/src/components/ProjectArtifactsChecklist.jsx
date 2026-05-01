@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, Trash2, ExternalLink, Check, Circle, FileText, Edit3, Loader2, Link as LinkIcon } from 'lucide-react';
 import { toast } from 'react-hot-toast';
@@ -39,18 +39,41 @@ const ProjectArtifactsChecklist = ({ projectId }) => {
   const [draft, setDraft] = useState({ title: '', url: '', note: '' });
   const [addingPhase, setAddingPhase] = useState(null);
   const [newItemTitle, setNewItemTitle] = useState('');
+  const seedingRef = useRef(false); // 중복 시드 방지
 
   useEffect(() => {
     if (!projectId) return;
     fetchArtifacts();
+    // 다른 사용자/탭에서 변경 시에만 동기화 (낙관적 업데이트가 1차 진실)
     const ch = supabase.channel(`project_artifacts_${projectId}`)
       .on('postgres_changes', {
         event: '*', schema: 'public', table: 'project_artifacts',
         filter: `project_id=eq.${projectId}`,
-      }, () => fetchArtifacts())
+      }, (payload) => {
+        // 자체 변경은 이미 로컬 반영됨 — drift 보정용으로만 머지
+        mergeFromRealtime(payload);
+      })
       .subscribe();
     return () => { supabase.removeChannel(ch); };
   }, [projectId]);
+
+  // 실시간 이벤트를 로컬 상태에 안전하게 머지 (중복 방지)
+  const mergeFromRealtime = (payload) => {
+    const { eventType, new: newRow, old: oldRow } = payload;
+    setArtifacts(prev => {
+      if (eventType === 'INSERT') {
+        if (prev.some(a => a.id === newRow.id)) return prev;
+        return [...prev, newRow];
+      }
+      if (eventType === 'UPDATE') {
+        return prev.map(a => a.id === newRow.id ? { ...a, ...newRow } : a);
+      }
+      if (eventType === 'DELETE') {
+        return prev.filter(a => a.id !== oldRow.id);
+      }
+      return prev;
+    });
+  };
 
   const fetchArtifacts = async () => {
     try {
@@ -67,14 +90,16 @@ const ProjectArtifactsChecklist = ({ projectId }) => {
         throw error;
       }
 
-      // 0개면 템플릿 자동 생성
-      if ((data || []).length === 0) {
+      // 0개면 템플릿 자동 생성 (중복 방지)
+      if ((data || []).length === 0 && !seedingRef.current) {
+        seedingRef.current = true;
         await seedTemplate();
-        return; // seed 후 channel이 다시 fetch 트리거
+        seedingRef.current = false;
+        return;
       }
 
       setDbError(false);
-      setArtifacts(data);
+      setArtifacts(data || []);
     } catch (e) {
       toast.error(`산출물 로드 오류: ${e.message}`);
     } finally {
@@ -85,8 +110,9 @@ const ProjectArtifactsChecklist = ({ projectId }) => {
   const seedTemplate = async () => {
     try {
       const rows = DEFAULT_TEMPLATE.map(t => ({ ...t, project_id: projectId }));
-      const { error } = await supabase.from('project_artifacts').insert(rows);
+      const { data, error } = await supabase.from('project_artifacts').insert(rows).select();
       if (error) throw error;
+      setArtifacts(data || []);
     } catch (e) {
       console.error('템플릿 생성 실패:', e.message);
     }
@@ -112,40 +138,76 @@ const ProjectArtifactsChecklist = ({ projectId }) => {
     setDraft({ title: artifact.title, url: artifact.url || '', note: artifact.note || '' });
   };
 
+  // 낙관적 업데이트: 즉시 로컬 반영, 실패 시 롤백
   const saveEdit = async (id) => {
-    try {
-      const { error } = await supabase
-        .from('project_artifacts')
-        .update({ ...draft, updated_at: new Date().toISOString() })
-        .eq('id', id);
-      if (error) throw error;
-      setEditingId(null);
-    } catch (e) {
-      toast.error(`저장 오류: ${e.message}`);
+    const prev = artifacts;
+    const updated = { ...draft, updated_at: new Date().toISOString() };
+    setArtifacts(p => p.map(a => a.id === id ? { ...a, ...updated } : a));
+    setEditingId(null);
+    const { error } = await supabase.from('project_artifacts').update(updated).eq('id', id);
+    if (error) {
+      toast.error(`저장 오류: ${error.message}`);
+      setArtifacts(prev);
     }
   };
 
   const cycleStatus = async (artifact) => {
     const curIdx = STATUS_ORDER.indexOf(artifact.status);
     const next = STATUS_ORDER[(curIdx + 1) % STATUS_ORDER.length];
-    setArtifacts(prev => prev.map(a => a.id === artifact.id ? { ...a, status: next } : a));
-    await supabase.from('project_artifacts').update({ status: next }).eq('id', artifact.id);
+    const prev = artifacts;
+    setArtifacts(p => p.map(a => a.id === artifact.id ? { ...a, status: next } : a));
+    const { error } = await supabase.from('project_artifacts').update({ status: next }).eq('id', artifact.id);
+    if (error) {
+      toast.error('상태 변경 오류');
+      setArtifacts(prev);
+    }
   };
 
   const deleteArtifact = async (id) => {
     if (!window.confirm('이 산출물 항목을 삭제할까요?')) return;
-    await supabase.from('project_artifacts').delete().eq('id', id);
+    const prev = artifacts;
+    setArtifacts(p => p.filter(a => a.id !== id));
+    const { error } = await supabase.from('project_artifacts').delete().eq('id', id);
+    if (error) {
+      toast.error(`삭제 오류: ${error.message}`);
+      setArtifacts(prev);
+    }
   };
 
   const addCustomItem = async (phase) => {
     const title = newItemTitle.trim();
     if (!title) return;
-    const maxSort = Math.max(-1, ...grouped[phase].map(a => a.sort_order || 0));
-    await supabase.from('project_artifacts').insert([{
-      project_id: projectId, phase, type: 'custom', title, sort_order: maxSort + 1,
-    }]);
+    const maxSort = Math.max(-1, ...(grouped[phase] || []).map(a => a.sort_order || 0));
+    const tempId = `temp-${Date.now()}`;
+    const tempRow = {
+      id: tempId,
+      project_id: projectId,
+      phase,
+      type: 'custom',
+      title,
+      url: '',
+      note: '',
+      status: 'not_started',
+      sort_order: maxSort + 1,
+    };
+    // 즉시 로컬에 추가
+    setArtifacts(p => [...p, tempRow]);
     setAddingPhase(null);
     setNewItemTitle('');
+
+    const { data, error } = await supabase
+      .from('project_artifacts')
+      .insert([{ project_id: projectId, phase, type: 'custom', title, sort_order: maxSort + 1 }])
+      .select()
+      .single();
+
+    if (error) {
+      toast.error(`추가 오류: ${error.message}`);
+      setArtifacts(p => p.filter(a => a.id !== tempId));
+      return;
+    }
+    // temp ID를 실제 ID로 교체
+    setArtifacts(p => p.map(a => a.id === tempId ? data : a));
   };
 
   if (dbError) {

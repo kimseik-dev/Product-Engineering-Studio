@@ -153,7 +153,8 @@ const ShareBoard = ({ members = [], onOpenWriter, categories = [] }) => {
             &nbsp;&nbsp;content text,<br/>
             &nbsp;&nbsp;category_id bigint references post_categories(id),<br/>
             &nbsp;&nbsp;author_id bigint references members(id),<br/>
-            &nbsp;&nbsp;created_at timestamp with time zone default now()<br/>
+            &nbsp;&nbsp;created_at timestamp with time zone default now(),<br/>
+            &nbsp;&nbsp;updated_at timestamp with time zone default now()<br/>
             );
           </div>
         </motion.div>
@@ -196,6 +197,12 @@ const ShareBoard = ({ members = [], onOpenWriter, categories = [] }) => {
                     onClick={(e) => openEditModal(post, e)}
                   >
                     <div className="card-shine" />
+                    
+                    {post.image_url && (
+                      <div className="insight-card-image-wrapper">
+                        <img src={post.image_url} alt={post.title} className="insight-card-image" />
+                      </div>
+                    )}
                     
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.5rem' }}>
                       <span 

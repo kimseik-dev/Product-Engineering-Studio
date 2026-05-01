@@ -5,6 +5,34 @@ import { supabase } from '../lib/supabase';
 import { toast } from 'react-hot-toast';
 import CustomEditor from './CustomEditor';
 
+const resizeImage = (base64Str, maxWidth = 400) => {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.src = base64Str;
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const width = img.width;
+      const height = img.height;
+      
+      if (width <= maxWidth) {
+        resolve(base64Str);
+        return;
+      }
+      
+      const ratio = maxWidth / width;
+      const newWidth = maxWidth;
+      const newHeight = height * ratio;
+      
+      canvas.width = newWidth;
+      canvas.height = newHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, newWidth, newHeight);
+      resolve(canvas.toDataURL('image/jpeg', 0.7)); // 70% quality JPEG
+    };
+    img.onerror = () => resolve(null);
+  });
+};
+
 const WritingPage = ({ editData, onClose, onSaveSuccess, categories = [] }) => {
   const [title, setTitle] = useState(editData?.title || '');
   const [content, setContent] = useState(editData?.content || '');
@@ -27,10 +55,19 @@ const WritingPage = ({ editData, onClose, onSaveSuccess, categories = [] }) => {
 
     try {
       setIsSubmitting(true);
+      // Extract first image from content for the preview
+      const imgRegex = /<img[^>]+src="([^">]+)"/;
+      const match = content.match(imgRegex);
+      let imageUrl = null;
+      if (match) {
+        imageUrl = await resizeImage(match[1], 400); // 400px wide thumbnail
+      }
+
       const postData = {
         title,
         content,
         category_id: categoryId,
+        image_url: imageUrl,
         updated_at: new Date().toISOString(),
       };
 

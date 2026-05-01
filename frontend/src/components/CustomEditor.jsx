@@ -25,15 +25,71 @@ const CustomEditor = ({ value, onChange, placeholder }) => {
     handleInput();
   };
 
-  const handleImageUpload = (e) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const base64 = event.target.result;
-        execCommand('insertImage', base64);
-      };
-      reader.readAsDataURL(file);
+  const handleImageUpload = (file) => {
+    if (!file) return;
+
+    // Use a toast or loader if available, but for now simple check
+    if (file.size > 5 * 1024 * 1024) {
+      alert("파일이 너무 커요! 5MB 이하의 이미지를 사용해주세요. 😅");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64 = event.target.result;
+      
+      // Ensure editor has focus before inserting
+      editorRef.current?.focus();
+      
+      // Create image element
+      const img = document.createElement('img');
+      img.src = base64;
+      img.alt = "attached image";
+      img.style.maxWidth = "100%";
+      img.style.borderRadius = "8px";
+      img.style.margin = "10px 0";
+      img.style.display = "block";
+      
+      // Try to insert at cursor position
+      const selection = window.getSelection();
+      if (selection && selection.rangeCount > 0) {
+        const range = selection.getRangeAt(0);
+        range.deleteContents();
+        range.insertNode(img);
+        
+        // Move cursor after the image
+        range.setStartAfter(img);
+        range.setEndAfter(img);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      } else {
+        // Fallback: append to end
+        editorRef.current?.appendChild(img);
+      }
+      
+      handleInput();
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const onPaste = (e) => {
+    const items = e.clipboardData?.items;
+    if (items) {
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.indexOf('image') !== -1) {
+          const file = items[i].getAsFile();
+          handleImageUpload(file);
+          e.preventDefault();
+        }
+      }
+    }
+  };
+
+  const onDrop = (e) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files[0];
+    if (file && file.type.startsWith('image/')) {
+      handleImageUpload(file);
     }
   };
 
@@ -50,7 +106,7 @@ const CustomEditor = ({ value, onChange, placeholder }) => {
         <div className="toolbar-divider" />
         <label className="toolbar-icon-label" title="이미지 삽입">
           <ImageIcon size={16} />
-          <input type="file" accept="image/*" onChange={handleImageUpload} hidden />
+          <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e.target.files?.[0])} hidden />
         </label>
       </div>
 
@@ -62,6 +118,9 @@ const CustomEditor = ({ value, onChange, placeholder }) => {
         onInput={handleInput}
         onFocus={() => setIsFocused(true)}
         onBlur={() => setIsFocused(false)}
+        onPaste={onPaste}
+        onDrop={onDrop}
+        onDragOver={(e) => e.preventDefault()}
         placeholder={placeholder}
         style={{ 
           minHeight: '250px', 
